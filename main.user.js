@@ -816,6 +816,8 @@
     const uid = findDirectPageUploaderUid();
     if (!uid || !BLOCKED_UIDS.has(uid)) return;
 
+    pauseDirectVideoPagePlayback();
+
     const ok = window.confirm(
       `This Bilibili video is from blocked uploader UID ${uid}. Do you want to continue watching it?`,
     );
@@ -825,6 +827,12 @@
     }
 
     leaveBlockedVideoPage();
+  }
+
+  function pauseDirectVideoPagePlayback() {
+    for (const video of document.querySelectorAll("video")) {
+      video.pause();
+    }
   }
 
   function scheduleDirectVideoPageChecks() {
