@@ -605,11 +605,7 @@
   }
 
   function parseBlockedUidText(text) {
-    const uids = new Set();
-    for (const value of text.split(/[\s,;]+/)) {
-      addUid(value, uids);
-    }
-    return [...uids];
+    return [...new Set(text.split(/\r?\n/).map(normalizeUid).filter(Boolean))];
   }
 
   function replaceBlockedUids(nextUids) {
@@ -695,7 +691,7 @@
       </div>
       <div class="buvb-manager-count"></div>
       <textarea id="${MANAGER_TEXTAREA_ID}" spellcheck="false"></textarea>
-      <div class="buvb-manager-help">Enter one UID per line. Spaces, commas, and semicolons also work.</div>
+      <div class="buvb-manager-help">Enter one UID per line.</div>
       <div class="buvb-manager-actions">
         <button class="buvb-manager-action" type="button" data-action="clear">Clear</button>
         <button class="buvb-manager-action" type="button" data-action="cancel">Cancel</button>
