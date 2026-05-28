@@ -680,7 +680,6 @@
       <div class="buvb-manager-help">Enter one UID per line.</div>
       <div class="buvb-manager-actions">
         <button class="buvb-manager-action" type="button" data-action="refresh">Refresh</button>
-        <button class="buvb-manager-action" type="button" data-action="clear">Clear</button>
         <button class="buvb-manager-action" type="button" data-action="cancel">Cancel</button>
         <button class="buvb-manager-action buvb-manager-action-primary" type="button" data-action="save">Save</button>
       </div>
@@ -704,8 +703,6 @@
         replaceBlockedUids(parseBlockedUidText(textarea.value));
       } else if (action === "refresh") {
         refreshBlocklistManagerPanel(panel);
-      } else if (action === "clear") {
-        textarea.value = "";
       } else if (action === "cancel") {
         refreshBlocklistManagerPanel();
         panel.hidden = true;
