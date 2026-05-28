@@ -6,26 +6,29 @@
 // @author       mr-yifeiwang
 // @match        https://www.bilibili.com/*
 // @match        https://search.bilibili.com/*
+// @match        https://space.bilibili.com/*
 // @run-at       document-start
-// @grant        none
+// @grant        GM_getValue
+// @grant        GM_setValue
 // ==/UserScript==
 
 (function () {
   "use strict";
 
-  /**
-   * Add/remove uploader UIDs here
-   */
-  const BLOCKED_UIDS = new Set([]);
-
   const BLOCK_ATTR = "data-bilibili-uid-blocked";
   const SCANNED_ATTR = "data-bilibili-uid-scanned";
   const ALLOW_STORAGE_PREFIX = "bilibili-uid-blocker:allow:";
+  const BLOCKLIST_STORAGE_KEY = "bilibili-uid-blocker:blocklist";
+  const USER_BUTTON_ID = "bilibili-uid-blocker-user-button";
+  const MANAGER_BUTTON_ID = "bilibili-uid-blocker-manager-button";
+  const MANAGER_PANEL_ID = "bilibili-uid-blocker-manager-panel";
+  const MANAGER_TEXTAREA_ID = "bilibili-uid-blocker-manager-textarea";
   const VIDEO_PATH_RE = /\/(video|bangumi\/play)\//i;
   const UID_ATTRS = ["data-usercard-mid", "data-mid", "mid"];
   const MAX_ANCESTOR_STEPS = 8;
   const MAX_CARD_AREA_RATIO = 0.75;
   const RESCAN_INTERVAL_MS = 1500;
+  const BLOCKED_UIDS = new Set();
 
   const COMMON_CARD_SELECTOR = [
     ".bili-video-card",
@@ -72,7 +75,10 @@
   setupBoot();
 
   function setupBoot() {
+    loadSavedBlockedUids();
     checkDirectVideoPage();
+    renderUserPageBlockButton();
+    renderBlocklistManager();
 
     if (document.readyState === "loading") {
       document.addEventListener("DOMContentLoaded", startScanning, {
@@ -83,21 +89,160 @@
     }
 
     window.addEventListener("pageshow", () => {
+      renderUserPageBlockButton();
+      renderBlocklistManager();
       checkDirectVideoPage();
       scheduleScan(document.documentElement);
     });
 
     patchHistory("pushState");
     patchHistory("replaceState");
-    window.addEventListener("popstate", () =>
-      setTimeout(checkDirectVideoPage, 0),
-    );
+    window.addEventListener("popstate", () => {
+      setTimeout(checkDirectVideoPage, 0);
+      setTimeout(renderUserPageBlockButton, 0);
+      setTimeout(renderBlocklistManager, 0);
+    });
   }
 
   function addBlockingStyle() {
     const css = `
       [${BLOCK_ATTR}="true"] {
         display: none !important;
+      }
+
+      #${USER_BUTTON_ID} {
+        position: fixed;
+        top: 72px;
+        right: 24px;
+        z-index: 999999;
+        border: 0;
+        border-radius: 18px;
+        padding: 8px 16px;
+        color: #fff;
+        background: #fb7299;
+        font-size: 14px;
+        font-weight: 600;
+        line-height: 20px;
+        white-space: pre-line;
+        cursor: pointer;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
+      }
+
+      #${USER_BUTTON_ID}[data-blocked="true"] {
+        background: #61666d;
+      }
+
+      #${MANAGER_BUTTON_ID} {
+        position: fixed;
+        top: 72px;
+        right: 24px;
+        z-index: 999999;
+        border: 0;
+        border-radius: 18px;
+        padding: 8px 16px;
+        color: #fff;
+        background: #fb7299;
+        font-size: 14px;
+        font-weight: 700;
+        line-height: 20px;
+        white-space: pre-line;
+        text-align: center;
+        cursor: pointer;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
+      }
+
+      #${MANAGER_BUTTON_ID}:hover {
+        background: #fb7299;
+      }
+
+      #${MANAGER_PANEL_ID} {
+        position: fixed;
+        top: 124px;
+        right: 24px;
+        z-index: 999999;
+        width: min(360px, calc(100vw - 48px));
+        border: 1px solid rgba(0, 0, 0, 0.08);
+        border-radius: 14px;
+        padding: 16px;
+        color: #18191c;
+        background: #fff;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        box-shadow: 0 12px 32px rgba(0, 0, 0, 0.22);
+      }
+
+      #${MANAGER_PANEL_ID}[hidden] {
+        display: none !important;
+      }
+
+      #${MANAGER_PANEL_ID} .buvb-manager-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 10px;
+      }
+
+      #${MANAGER_PANEL_ID} .buvb-manager-title {
+        font-size: 16px;
+        font-weight: 700;
+      }
+
+      #${MANAGER_PANEL_ID} .buvb-manager-count {
+        margin-bottom: 10px;
+        color: #61666d;
+        font-size: 13px;
+      }
+
+      #${MANAGER_TEXTAREA_ID} {
+        box-sizing: border-box;
+        width: 100%;
+        min-height: 160px;
+        border: 1px solid #c9ccd0;
+        border-radius: 10px;
+        padding: 10px;
+        color: #18191c;
+        background: #f6f7f8;
+        font: 14px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        resize: vertical;
+      }
+
+      #${MANAGER_PANEL_ID} .buvb-manager-help {
+        margin: 8px 0 12px;
+        color: #9499a0;
+        font-size: 12px;
+      }
+
+      #${MANAGER_PANEL_ID} .buvb-manager-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 8px;
+      }
+
+      #${MANAGER_PANEL_ID} .buvb-manager-action {
+        border: 0;
+        border-radius: 8px;
+        padding: 7px 12px;
+        color: #18191c;
+        background: #e3e5e7;
+        font-size: 13px;
+        cursor: pointer;
+      }
+
+      #${MANAGER_PANEL_ID} .buvb-manager-action-primary {
+        color: #fff;
+        background: #00aeec;
+      }
+
+      #${MANAGER_PANEL_ID} .buvb-manager-close {
+        border: 0;
+        border-radius: 50%;
+        width: 28px;
+        height: 28px;
+        color: #61666d;
+        background: #f1f2f3;
+        font-size: 18px;
+        line-height: 28px;
+        cursor: pointer;
       }
     `;
 
@@ -120,6 +265,8 @@
 
   function startScanning() {
     scan(document.documentElement);
+    renderUserPageBlockButton();
+    renderBlocklistManager();
 
     const observer = new MutationObserver((mutations) => {
       for (const mutation of mutations) {
@@ -322,6 +469,245 @@
     card.setAttribute("data-bilibili-uid-blocked-uid", uid);
   }
 
+  function unhideCardsForUid(uid) {
+    for (const card of document.querySelectorAll(
+      `[data-bilibili-uid-blocked-uid="${uid}"]`,
+    )) {
+      card.removeAttribute(BLOCK_ATTR);
+      card.removeAttribute("data-bilibili-uid-blocked-uid");
+      card.removeAttribute(SCANNED_ATTR);
+    }
+  }
+
+  function loadSavedBlockedUids() {
+    const savedUids = readSavedBlockedUids();
+    for (const uid of (savedUids || []).map(normalizeUid).filter(Boolean)) {
+      BLOCKED_UIDS.add(uid);
+    }
+  }
+
+  function readSavedBlockedUids() {
+    try {
+      const saved =
+        typeof GM_getValue === "function"
+          ? GM_getValue(BLOCKLIST_STORAGE_KEY, null)
+          : localStorage.getItem(BLOCKLIST_STORAGE_KEY);
+      if (saved == null) return null;
+      const parsed = JSON.parse(saved);
+      if (!Array.isArray(parsed)) return [];
+      return parsed.map(normalizeUid).filter(Boolean);
+    } catch (_error) {
+      return [];
+    }
+  }
+
+  function saveBlockedUids() {
+    try {
+      const saved = JSON.stringify([...BLOCKED_UIDS]);
+      if (typeof GM_setValue === "function") {
+        GM_setValue(BLOCKLIST_STORAGE_KEY, saved);
+      } else {
+        localStorage.setItem(BLOCKLIST_STORAGE_KEY, saved);
+      }
+    } catch (_error) {
+      // Ignore storage failures so blocking still works until reload.
+    }
+  }
+
+  function getBlockedUidList() {
+    return [...BLOCKED_UIDS].sort(compareNumericUidStrings);
+  }
+
+  function compareNumericUidStrings(a, b) {
+    if (a.length !== b.length) return a.length - b.length;
+    return a.localeCompare(b);
+  }
+
+  function parseBlockedUidText(text) {
+    const uids = new Set();
+    for (const value of text.split(/[\s,;]+/)) {
+      addUid(value, uids);
+    }
+    return [...uids];
+  }
+
+  function replaceBlockedUids(nextUids) {
+    const nextUidSet = new Set(nextUids.map(normalizeUid).filter(Boolean));
+    for (const uid of [...BLOCKED_UIDS]) {
+      if (!nextUidSet.has(uid)) {
+        BLOCKED_UIDS.delete(uid);
+        unhideCardsForUid(uid);
+      }
+    }
+
+    for (const uid of nextUidSet) {
+      BLOCKED_UIDS.add(uid);
+    }
+
+    saveBlockedUids();
+    scan(document.documentElement, true);
+    refreshBlocklistManagerPanel();
+  }
+
+  function setUidBlocked(uid, blocked) {
+    if (blocked) {
+      BLOCKED_UIDS.add(uid);
+    } else {
+      BLOCKED_UIDS.delete(uid);
+      unhideCardsForUid(uid);
+    }
+
+    saveBlockedUids();
+    scan(document.documentElement, true);
+    refreshBlocklistManagerPanel();
+  }
+
+  function renderBlocklistManager() {
+    const shouldShow = isBlocklistManagerPage();
+    let button = document.getElementById(MANAGER_BUTTON_ID);
+    let panel = document.getElementById(MANAGER_PANEL_ID);
+
+    if (!shouldShow) {
+      if (button) button.remove();
+      if (panel) panel.remove();
+      return;
+    }
+
+    if (!button) {
+      button = document.createElement("button");
+      button.id = MANAGER_BUTTON_ID;
+      button.type = "button";
+      button.textContent = "Check Blocked\nUploaders by UID";
+      button.title = "View and edit blocked uploader UIDs";
+      button.addEventListener("click", () => {
+        const currentPanel = ensureBlocklistManagerPanel();
+        currentPanel.hidden = !currentPanel.hidden;
+        if (!currentPanel.hidden) {
+          refreshBlocklistManagerPanel();
+          const textarea = document.getElementById(MANAGER_TEXTAREA_ID);
+          if (textarea) textarea.focus();
+        }
+      });
+    }
+
+    if (!button.isConnected) {
+      (document.body || document.documentElement).appendChild(button);
+    }
+
+    panel = ensureBlocklistManagerPanel();
+    if (!panel.isConnected) {
+      (document.body || document.documentElement).appendChild(panel);
+    }
+  }
+
+  function ensureBlocklistManagerPanel() {
+    let panel = document.getElementById(MANAGER_PANEL_ID);
+    if (panel) return panel;
+
+    panel = document.createElement("section");
+    panel.id = MANAGER_PANEL_ID;
+    panel.hidden = true;
+    panel.innerHTML = `
+      <div class="buvb-manager-header">
+        <div class="buvb-manager-title">Blocked Uploader UIDs</div>
+        <button class="buvb-manager-close" type="button" title="Close">×</button>
+      </div>
+      <div class="buvb-manager-count"></div>
+      <textarea id="${MANAGER_TEXTAREA_ID}" spellcheck="false"></textarea>
+      <div class="buvb-manager-help">Enter one UID per line. Spaces, commas, and semicolons also work.</div>
+      <div class="buvb-manager-actions">
+        <button class="buvb-manager-action" type="button" data-action="clear">Clear</button>
+        <button class="buvb-manager-action" type="button" data-action="cancel">Cancel</button>
+        <button class="buvb-manager-action buvb-manager-action-primary" type="button" data-action="save">Save</button>
+      </div>
+    `;
+
+    panel.addEventListener("click", (event) => {
+      const action = event.target && event.target.getAttribute("data-action");
+      if (event.target && event.target.classList.contains("buvb-manager-close")) {
+        panel.hidden = true;
+        return;
+      }
+      if (!action) return;
+
+      const textarea = document.getElementById(MANAGER_TEXTAREA_ID);
+      if (!textarea) return;
+
+      if (action === "save") {
+        replaceBlockedUids(parseBlockedUidText(textarea.value));
+      } else if (action === "clear") {
+        textarea.value = "";
+      } else if (action === "cancel") {
+        refreshBlocklistManagerPanel();
+        panel.hidden = true;
+      }
+    });
+
+    refreshBlocklistManagerPanel(panel);
+    return panel;
+  }
+
+  function refreshBlocklistManagerPanel(panel = document.getElementById(MANAGER_PANEL_ID)) {
+    if (!panel) return;
+
+    const uids = getBlockedUidList();
+    const textarea = panel.querySelector(`#${MANAGER_TEXTAREA_ID}`);
+    const count = panel.querySelector(".buvb-manager-count");
+    if (textarea) textarea.value = uids.join("\n");
+    if (count) {
+      count.textContent = `${uids.length} blocked ${uids.length === 1 ? "user" : "users"}`;
+    }
+  }
+
+  function isBlocklistManagerPage() {
+    return (
+      location.hostname === "www.bilibili.com" ||
+      location.hostname === "search.bilibili.com"
+    );
+  }
+
+  function renderUserPageBlockButton() {
+    const uid = getCurrentUserPageUid();
+    let button = document.getElementById(USER_BUTTON_ID);
+
+    if (!uid) {
+      if (button) button.remove();
+      return;
+    }
+
+    if (!button) {
+      button = document.createElement("button");
+      button.id = USER_BUTTON_ID;
+      button.type = "button";
+      button.addEventListener("click", () => {
+        const currentUid = button.getAttribute("data-uid");
+        if (!currentUid) return;
+
+        setUidBlocked(currentUid, !BLOCKED_UIDS.has(currentUid));
+        updateUserPageBlockButton(button, currentUid);
+      });
+    }
+
+    updateUserPageBlockButton(button, uid);
+    if (!button.isConnected) {
+      (document.body || document.documentElement).appendChild(button);
+    }
+  }
+
+  function updateUserPageBlockButton(button, uid) {
+    const blocked = BLOCKED_UIDS.has(uid);
+    button.setAttribute("data-uid", uid);
+    button.setAttribute("data-blocked", String(blocked));
+    button.textContent = blocked ? "Unblock Uploader\nby UID" : "Block Uploader\nby UID";
+    button.title = `${blocked ? "Unblock" : "Block"} Bilibili uploader UID ${uid}`;
+  }
+
+  function getCurrentUserPageUid() {
+    if (location.hostname !== "space.bilibili.com") return "";
+    const match = location.pathname.match(/^\/(\d+)(?:\/|$)/);
+    return match ? normalizeUid(match[1]) : "";
+  }
+
   function isUnsafePageContainer(element) {
     if (!element) return true;
     const tagName = element.tagName;
@@ -420,6 +806,8 @@
     history[methodName] = function patchedHistoryMethod(...args) {
       const result = original.apply(this, args);
       setTimeout(checkDirectVideoPage, 0);
+      setTimeout(renderUserPageBlockButton, 0);
+      setTimeout(renderBlocklistManager, 0);
       setTimeout(() => scheduleScan(document.documentElement), 0);
       return result;
     };
