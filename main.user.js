@@ -23,7 +23,7 @@
   const MANAGER_BUTTON_ID = "bilibili-uid-blocker-manager-button";
   const MANAGER_PANEL_ID = "bilibili-uid-blocker-manager-panel";
   const MANAGER_TEXTAREA_ID = "bilibili-uid-blocker-manager-textarea";
-  const VIDEO_PATH_RE = /\/(video|bangumi\/play)\//i;
+  const VIDEO_PATH_RE = /\/video\//i;
   const UID_ATTRS = ["data-usercard-mid", "data-mid", "mid"];
   const MAX_ANCESTOR_STEPS = 8;
   const MAX_CARD_AREA_RATIO = 0.75;
@@ -292,7 +292,7 @@
   }
 
   function startScanning() {
-    scan(document.documentElement);
+    if (isCardBlockingPage()) scan(document.documentElement);
     renderUserPageBlockButton();
     renderBlocklistManager();
 
@@ -315,13 +315,16 @@
       attributeFilter: ["href", ...UID_ATTRS, "class", "title", "alt"],
     });
 
-    setInterval(() => scan(document.documentElement, true), RESCAN_INTERVAL_MS);
+    setInterval(() => {
+      if (isCardBlockingPage()) scan(document.documentElement, true);
+    }, RESCAN_INTERVAL_MS);
   }
 
   let scheduled = false;
   const pendingRoots = new Set();
 
   function scheduleScan(root) {
+    if (!isCardBlockingPage()) return;
     if (!root || root.nodeType !== Node.ELEMENT_NODE) return;
 
     pendingRoots.add(root);
@@ -339,6 +342,7 @@
   }
 
   function scan(root, force = false) {
+    if (!isCardBlockingPage()) return;
     if (!root || root.nodeType !== Node.ELEMENT_NODE) return;
 
     const elements = collectUploaderCandidates(root);
@@ -737,10 +741,7 @@
   }
 
   function isBlocklistManagerPage() {
-    return (
-      location.hostname === "www.bilibili.com" ||
-      location.hostname === "search.bilibili.com"
-    );
+    return isBilibiliHomePage() || isSearchPage();
   }
 
   function renderUserPageBlockButton() {
@@ -780,9 +781,23 @@
   }
 
   function getCurrentUserPageUid() {
+    if (isDirectVideoPage()) return findDirectPageUploaderUid();
+
     if (location.hostname !== "space.bilibili.com") return "";
     const match = location.pathname.match(/^\/(\d+)(?:\/|$)/);
     return match ? normalizeUid(match[1]) : "";
+  }
+
+  function isCardBlockingPage() {
+    return isBlocklistManagerPage();
+  }
+
+  function isBilibiliHomePage() {
+    return location.hostname === "www.bilibili.com" && location.pathname === "/";
+  }
+
+  function isSearchPage() {
+    return location.hostname === "search.bilibili.com";
   }
 
   function isUnsafePageContainer(element) {
@@ -838,11 +853,15 @@
   function scheduleDirectVideoPageChecks() {
     for (const delay of DIRECT_VIDEO_CHECK_DELAYS) {
       setTimeout(checkDirectVideoPage, delay);
+      setTimeout(renderUserPageBlockButton, delay);
     }
   }
 
   function isDirectVideoPage() {
-    return VIDEO_PATH_RE.test(location.pathname);
+    return (
+      location.hostname === "www.bilibili.com" &&
+      VIDEO_PATH_RE.test(location.pathname)
+    );
   }
 
   function isAllowedDirectVideoPage() {
