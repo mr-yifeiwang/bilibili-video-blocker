@@ -21,6 +21,7 @@
   const BLOCKLIST_STORAGE_KEY = "bilibili-uid-blocker:blocklist";
   const USER_BUTTON_ID = "bilibili-uid-blocker-user-button";
   const MANAGER_BUTTON_ID = "bilibili-uid-blocker-manager-button";
+  const FLOATING_BUTTON_CLASS = "bilibili-uid-blocker-floating-button";
   const MANAGER_PANEL_ID = "bilibili-uid-blocker-manager-panel";
   const MANAGER_TEXTAREA_ID = "bilibili-uid-blocker-manager-textarea";
   const VIDEO_PATH_RE = /\/video\//i;
@@ -138,7 +139,7 @@
         display: none !important;
       }
 
-      #${USER_BUTTON_ID} {
+      .${FLOATING_BUTTON_CLASS} {
         position: fixed;
         top: 72px;
         right: 24px;
@@ -148,28 +149,8 @@
         padding: 8px 16px;
         color: #fff;
         background: #fb7299;
-        font-size: 14px;
-        font-weight: 600;
-        line-height: 20px;
-        white-space: pre-line;
-        cursor: pointer;
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
-      }
-
-      #${USER_BUTTON_ID}[data-blocked="true"] {
-        background: #61666d;
-      }
-
-      #${MANAGER_BUTTON_ID} {
-        position: fixed;
-        top: 72px;
-        right: 24px;
-        z-index: 999999;
-        border: 0;
-        border-radius: 18px;
-        padding: 8px 16px;
-        color: #fff;
-        background: #fb7299;
+        appearance: none;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
         font-size: 14px;
         font-weight: 700;
         line-height: 20px;
@@ -179,8 +160,12 @@
         box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
       }
 
-      #${MANAGER_BUTTON_ID}:hover {
+      .${FLOATING_BUTTON_CLASS}:hover {
         background: #fb7299;
+      }
+
+      #${MANAGER_PANEL_ID} button {
+        font-weight: 700;
       }
 
       #${MANAGER_PANEL_ID} {
@@ -653,8 +638,9 @@
     if (!button) {
       button = document.createElement("button");
       button.id = MANAGER_BUTTON_ID;
+      button.className = FLOATING_BUTTON_CLASS;
       button.type = "button";
-      button.textContent = "Check Blocked\nUsers by UID";
+      button.textContent = "Manage UID\nBlocklist";
       button.title = "View and edit blocked user UIDs";
       button.addEventListener("click", () => {
         const currentPanel = ensureBlocklistManagerPanel();
@@ -757,6 +743,7 @@
     if (!button) {
       button = document.createElement("button");
       button.id = USER_BUTTON_ID;
+      button.className = FLOATING_BUTTON_CLASS;
       button.type = "button";
       button.addEventListener("click", () => {
         const currentUid = button.getAttribute("data-uid");
