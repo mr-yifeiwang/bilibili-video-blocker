@@ -10,6 +10,7 @@
 // @run-at       document-start
 // @grant        GM_getValue
 // @grant        GM_setValue
+// @grant        GM_addValueChangeListener
 // ==/UserScript==
 
 (function () {
@@ -104,6 +105,7 @@
 
   function setupBoot() {
     loadSavedBlockedUids();
+    setupBlocklistSync();
     checkDirectVideoPage();
     scheduleDirectVideoPageChecks();
     renderUserPageBlockButton();
@@ -546,9 +548,38 @@
   }
 
   function loadSavedBlockedUids() {
-    const savedUids = readSavedBlockedUids();
-    for (const uid of (savedUids || []).map(normalizeUid).filter(Boolean)) {
-      BLOCKED_UIDS.add(uid);
+    replaceRuntimeBlockedUids(readSavedBlockedUids() || []);
+  }
+
+  function setupBlocklistSync() {
+    if (typeof GM_addValueChangeListener === "function") {
+      GM_addValueChangeListener(
+        BLOCKLIST_STORAGE_KEY,
+        (_key, _oldValue, newValue, remote) => {
+          if (!remote) return;
+          syncBlockedUidsFromSavedValue(newValue);
+        },
+      );
+      return;
+    }
+
+    window.addEventListener("storage", (event) => {
+      if (event.key !== BLOCKLIST_STORAGE_KEY) return;
+      syncBlockedUidsFromSavedValue(event.newValue);
+    });
+  }
+
+  function syncBlockedUidsFromSavedValue(savedValue) {
+    const savedUids = parseSavedBlockedUids(savedValue);
+    if (!savedUids) return;
+
+    replaceRuntimeBlockedUids(savedUids);
+    scan(document.documentElement, true);
+    refreshBlocklistManagerPanel();
+    const button = document.getElementById(USER_BUTTON_ID);
+    const uid = button && button.getAttribute("data-uid");
+    if (button && uid) {
+      updateUserPageBlockButton(button, uid);
     }
   }
 
@@ -558,12 +589,35 @@
         typeof GM_getValue === "function"
           ? GM_getValue(BLOCKLIST_STORAGE_KEY, null)
           : localStorage.getItem(BLOCKLIST_STORAGE_KEY);
-      if (saved == null) return null;
-      const parsed = JSON.parse(saved);
+      return parseSavedBlockedUids(saved);
+    } catch (_error) {
+      return [];
+    }
+  }
+
+  function parseSavedBlockedUids(saved) {
+    if (saved == null) return null;
+
+    try {
+      const parsed = typeof saved === "string" ? JSON.parse(saved) : saved;
       if (!Array.isArray(parsed)) return [];
       return parsed.map(normalizeUid).filter(Boolean);
     } catch (_error) {
       return [];
+    }
+  }
+
+  function replaceRuntimeBlockedUids(nextUids) {
+    const nextUidSet = new Set(nextUids.map(normalizeUid).filter(Boolean));
+    for (const uid of [...BLOCKED_UIDS]) {
+      if (!nextUidSet.has(uid)) {
+        BLOCKED_UIDS.delete(uid);
+        unhideCardsForUid(uid);
+      }
+    }
+
+    for (const uid of nextUidSet) {
+      BLOCKED_UIDS.add(uid);
     }
   }
 
@@ -612,6 +666,8 @@
   }
 
   function setUidBlocked(uid, blocked) {
+    replaceRuntimeBlockedUids(readSavedBlockedUids() || []);
+
     if (blocked) {
       BLOCKED_UIDS.add(uid);
     } else {
@@ -749,6 +805,7 @@
         const currentUid = button.getAttribute("data-uid");
         if (!currentUid) return;
 
+        replaceRuntimeBlockedUids(readSavedBlockedUids() || []);
         setUidBlocked(currentUid, !BLOCKED_UIDS.has(currentUid));
         updateUserPageBlockButton(button, currentUid);
       });
