@@ -28,6 +28,7 @@
   const MAX_ANCESTOR_STEPS = 8;
   const MAX_CARD_AREA_RATIO = 0.75;
   const RESCAN_INTERVAL_MS = 1500;
+  const DIRECT_VIDEO_CHECK_DELAYS = [250, 1000, 2500];
   const BLOCKED_UIDS = new Set();
 
   const COMMON_CARD_SELECTOR = [
@@ -71,12 +72,39 @@
     "[mid]",
   ].join(",");
 
+  const RECOMMENDATION_AREA_SELECTOR = [
+    ".recommend-list",
+    ".recommend-container",
+    ".right-container",
+    ".video-card-reco",
+    ".video-page-card-small",
+    '[class*="recommend"]',
+    '[class*="Recommend"]',
+    '[class*="reco"]',
+    '[class*="Reco"]',
+  ].join(",");
+
+  const VIDEO_OWNER_SELECTOR = [
+    ".up-info-container .up-name[href*=\"space.bilibili.com/\"]",
+    ".up-info .up-name[href*=\"space.bilibili.com/\"]",
+    ".up-info-right a[href*=\"space.bilibili.com/\"]",
+    ".video-owner a[href*=\"space.bilibili.com/\"]",
+    ".owner a[href*=\"space.bilibili.com/\"]",
+    ".members-info a[href*=\"space.bilibili.com/\"]",
+    ".staff-info a[href*=\"space.bilibili.com/\"]",
+    '[class*="up-info"] a[href*="space.bilibili.com/"]',
+    '[class*="UpInfo"] a[href*="space.bilibili.com/"]',
+    '[class*="owner"] a[href*="space.bilibili.com/"]',
+    '[class*="Owner"] a[href*="space.bilibili.com/"]',
+  ].join(",");
+
   addBlockingStyle();
   setupBoot();
 
   function setupBoot() {
     loadSavedBlockedUids();
     checkDirectVideoPage();
+    scheduleDirectVideoPageChecks();
     renderUserPageBlockButton();
     renderBlocklistManager();
 
@@ -91,14 +119,14 @@
     window.addEventListener("pageshow", () => {
       renderUserPageBlockButton();
       renderBlocklistManager();
-      checkDirectVideoPage();
+      scheduleDirectVideoPageChecks();
       scheduleScan(document.documentElement);
     });
 
     patchHistory("pushState");
     patchHistory("replaceState");
     window.addEventListener("popstate", () => {
-      setTimeout(checkDirectVideoPage, 0);
+      scheduleDirectVideoPageChecks();
       setTimeout(renderUserPageBlockButton, 0);
       setTimeout(renderBlocklistManager, 0);
     });
@@ -463,10 +491,59 @@
   }
 
   function hideCard(card, uid) {
-    if (!card || isUnsafePageContainer(card) || isTooLargeToHide(card)) return;
+    if (
+      !card ||
+      isUnsafePageContainer(card) ||
+      isTooLargeToHide(card) ||
+      isAllowedDirectVideoOwnerCard(card, uid) ||
+      containsMultipleVideos(card)
+    ) {
+      return;
+    }
 
     card.setAttribute(BLOCK_ATTR, "true");
     card.setAttribute("data-bilibili-uid-blocked-uid", uid);
+  }
+
+  function isAllowedDirectVideoOwnerCard(card, uid) {
+    if (!uid || !isAllowedDirectVideoPage()) return false;
+    if (uid !== findDirectPageUploaderUid()) return false;
+    return (
+      !matchesSafely(card, RECOMMENDATION_AREA_SELECTOR) &&
+      !isInsideRecommendationArea(card)
+    );
+  }
+
+  function isInsideRecommendationArea(element) {
+    return Boolean(element && element.closest(RECOMMENDATION_AREA_SELECTOR));
+  }
+
+  function containsMultipleVideos(element) {
+    return getUniqueVideoHrefs(element).length > 1;
+  }
+
+  function getUniqueVideoHrefs(element) {
+    const hrefs = new Set();
+    const links = [];
+    if (matchesSafely(element, VIDEO_LINK_SELECTOR)) links.push(element);
+    links.push(...element.querySelectorAll(VIDEO_LINK_SELECTOR));
+
+    for (const link of links) {
+      const href = normalizeVideoHref(link.getAttribute("href"));
+      if (href) hrefs.add(href);
+    }
+
+    return [...hrefs];
+  }
+
+  function normalizeVideoHref(href) {
+    if (!href) return "";
+
+    try {
+      return new URL(href, location.href).pathname.replace(/\/$/, "");
+    } catch (_error) {
+      return href.split(/[?#]/)[0].replace(/\/$/, "");
+    }
   }
 
   function unhideCardsForUid(uid) {
@@ -734,8 +811,7 @@
   function checkDirectVideoPage() {
     if (!isDirectVideoPage()) return;
 
-    const allowKey = ALLOW_STORAGE_PREFIX + location.pathname;
-    if (sessionStorage.getItem(allowKey) === "true") return;
+    if (isAllowedDirectVideoPage()) return;
 
     const uid = findDirectPageUploaderUid();
     if (!uid || !BLOCKED_UIDS.has(uid)) return;
@@ -744,15 +820,32 @@
       `This Bilibili video is from blocked uploader UID ${uid}. Do you want to continue watching it?`,
     );
     if (ok) {
-      sessionStorage.setItem(allowKey, "true");
+      sessionStorage.setItem(getDirectVideoAllowKey(), "true");
       return;
     }
 
     leaveBlockedVideoPage();
   }
 
+  function scheduleDirectVideoPageChecks() {
+    for (const delay of DIRECT_VIDEO_CHECK_DELAYS) {
+      setTimeout(checkDirectVideoPage, delay);
+    }
+  }
+
   function isDirectVideoPage() {
     return VIDEO_PATH_RE.test(location.pathname);
+  }
+
+  function isAllowedDirectVideoPage() {
+    return (
+      isDirectVideoPage() &&
+      sessionStorage.getItem(getDirectVideoAllowKey()) === "true"
+    );
+  }
+
+  function getDirectVideoAllowKey() {
+    return ALLOW_STORAGE_PREFIX + location.pathname;
   }
 
   function findDirectPageUploaderUid() {
@@ -761,11 +854,14 @@
 
     if (!document.documentElement) return "";
 
-    const uid = getBlockedUidInside(document.documentElement);
-    if (uid) return uid;
+    const ownerLink = document.querySelector(VIDEO_OWNER_SELECTOR);
+    if (ownerLink && !isInsideRecommendationArea(ownerLink)) {
+      const uids = getUploaderUidsFromElement(ownerLink);
+      if (uids[0]) return uids[0];
+    }
 
     const spaceLink = document.querySelector('a[href*="space.bilibili.com/"]');
-    if (spaceLink) {
+    if (spaceLink && !isInsideRecommendationArea(spaceLink)) {
       const uids = getUploaderUidsFromElement(spaceLink);
       if (uids[0]) return uids[0];
     }
@@ -805,7 +901,7 @@
     const original = history[methodName];
     history[methodName] = function patchedHistoryMethod(...args) {
       const result = original.apply(this, args);
-      setTimeout(checkDirectVideoPage, 0);
+      scheduleDirectVideoPageChecks();
       setTimeout(renderUserPageBlockButton, 0);
       setTimeout(renderBlocklistManager, 0);
       setTimeout(() => scheduleScan(document.documentElement), 0);
