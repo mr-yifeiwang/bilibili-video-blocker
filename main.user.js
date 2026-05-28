@@ -654,8 +654,8 @@
       button = document.createElement("button");
       button.id = MANAGER_BUTTON_ID;
       button.type = "button";
-      button.textContent = "Check Blocked\nUploaders by UID";
-      button.title = "View and edit blocked uploader UIDs";
+      button.textContent = "Check Blocked\nUsers by UID";
+      button.title = "View and edit blocked user UIDs";
       button.addEventListener("click", () => {
         const currentPanel = ensureBlocklistManagerPanel();
         currentPanel.hidden = !currentPanel.hidden;
@@ -686,7 +686,7 @@
     panel.hidden = true;
     panel.innerHTML = `
       <div class="buvb-manager-header">
-        <div class="buvb-manager-title">Blocked Uploader UIDs</div>
+        <div class="buvb-manager-title">Blocked User UIDs</div>
         <button class="buvb-manager-close" type="button" title="Close">×</button>
       </div>
       <div class="buvb-manager-count"></div>
@@ -778,9 +778,9 @@
     button.setAttribute("data-uid", uid);
     button.setAttribute("data-blocked", String(blocked));
     button.textContent = blocked
-      ? "Unblock Uploader\nby UID"
-      : "Block Uploader\nby UID";
-    button.title = `${blocked ? "Unblock" : "Block"} Bilibili uploader UID ${uid}`;
+      ? "Unblock User\nby UID"
+      : "Block User\nby UID";
+    button.title = `${blocked ? "Unblock" : "Block"} Bilibili user UID ${uid}`;
   }
 
   function getCurrentUserPageUid() {
