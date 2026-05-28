@@ -2,7 +2,7 @@
 // @name         Bilibili Video Blocker
 // @namespace    https://github.com/mr-yifeiwang/bilibili-video-blocker
 // @version      1.0.0
-// @description  Hide Bilibili video cards from blocked uploader UIDs and confirm before watching blocked uploader videos
+// @description  Hide Bilibili video cards from blocked uploader UIDs and confirm before watching blocked uploader's videos
 // @author       mr-yifeiwang
 // @match        https://www.bilibili.com/*
 // @match        https://search.bilibili.com/*
@@ -85,13 +85,13 @@
   ].join(",");
 
   const VIDEO_OWNER_SELECTOR = [
-    ".up-info-container .up-name[href*=\"space.bilibili.com/\"]",
-    ".up-info .up-name[href*=\"space.bilibili.com/\"]",
-    ".up-info-right a[href*=\"space.bilibili.com/\"]",
-    ".video-owner a[href*=\"space.bilibili.com/\"]",
-    ".owner a[href*=\"space.bilibili.com/\"]",
-    ".members-info a[href*=\"space.bilibili.com/\"]",
-    ".staff-info a[href*=\"space.bilibili.com/\"]",
+    '.up-info-container .up-name[href*="space.bilibili.com/"]',
+    '.up-info .up-name[href*="space.bilibili.com/"]',
+    '.up-info-right a[href*="space.bilibili.com/"]',
+    '.video-owner a[href*="space.bilibili.com/"]',
+    '.owner a[href*="space.bilibili.com/"]',
+    '.members-info a[href*="space.bilibili.com/"]',
+    '.staff-info a[href*="space.bilibili.com/"]',
     '[class*="up-info"] a[href*="space.bilibili.com/"]',
     '[class*="UpInfo"] a[href*="space.bilibili.com/"]',
     '[class*="owner"] a[href*="space.bilibili.com/"]',
@@ -701,7 +701,10 @@
 
     panel.addEventListener("click", (event) => {
       const action = event.target && event.target.getAttribute("data-action");
-      if (event.target && event.target.classList.contains("buvb-manager-close")) {
+      if (
+        event.target &&
+        event.target.classList.contains("buvb-manager-close")
+      ) {
         panel.hidden = true;
         return;
       }
@@ -724,7 +727,9 @@
     return panel;
   }
 
-  function refreshBlocklistManagerPanel(panel = document.getElementById(MANAGER_PANEL_ID)) {
+  function refreshBlocklistManagerPanel(
+    panel = document.getElementById(MANAGER_PANEL_ID),
+  ) {
     if (!panel) return;
 
     const uids = getBlockedUidList();
@@ -772,7 +777,9 @@
     const blocked = BLOCKED_UIDS.has(uid);
     button.setAttribute("data-uid", uid);
     button.setAttribute("data-blocked", String(blocked));
-    button.textContent = blocked ? "Unblock Uploader\nby UID" : "Block Uploader\nby UID";
+    button.textContent = blocked
+      ? "Unblock Uploader\nby UID"
+      : "Block Uploader\nby UID";
     button.title = `${blocked ? "Unblock" : "Block"} Bilibili uploader UID ${uid}`;
   }
 
@@ -789,7 +796,9 @@
   }
 
   function isBilibiliHomePage() {
-    return location.hostname === "www.bilibili.com" && location.pathname === "/";
+    return (
+      location.hostname === "www.bilibili.com" && location.pathname === "/"
+    );
   }
 
   function isSearchPage() {
