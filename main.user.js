@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Bilibili Video Blocker
 // @namespace    https://github.com/mr-yifeiwang/bilibili-video-blocker
-// @version      1.1.0
+// @version      1.1.1
 // @description  Hide Bilibili video cards from blocked uploader UIDs
 // @author       mr-yifeiwang
 // @match        https://www.bilibili.com/*
@@ -85,6 +85,11 @@
     '[class*="Recommend"]',
     '[class*="reco"]',
     '[class*="Reco"]',
+  ].join(",");
+
+  const RECOMMENDATION_CARD_CONTAINER_SELECTOR = [
+    ".video-page-card-small",
+    '[class*="col_"][class*="mb_"]',
   ].join(",");
 
   const VIDEO_OWNER_SELECTOR = [
@@ -517,18 +522,41 @@
   }
 
   function hideCard(card, uid) {
+    const target = getCardHideTarget(card);
+
     if (
-      !card ||
-      isUnsafePageContainer(card) ||
-      isTooLargeToHide(card) ||
-      isDirectVideoOwnerCard(card, uid) ||
-      containsMultipleVideos(card)
+      !target ||
+      isUnsafePageContainer(target) ||
+      isTooLargeToHide(target) ||
+      isDirectVideoOwnerCard(target, uid) ||
+      containsMultipleVideos(target)
     ) {
       return;
     }
 
-    card.setAttribute(BLOCK_ATTR, "true");
-    card.setAttribute("data-bilibili-uid-blocked-uid", uid);
+    target.setAttribute(BLOCK_ATTR, "true");
+    target.setAttribute("data-bilibili-uid-blocked-uid", uid);
+  }
+
+  function getCardHideTarget(card) {
+    if (!card) return null;
+
+    const cardContainer = card.closest(
+      RECOMMENDATION_CARD_CONTAINER_SELECTOR,
+    );
+    if (isSafeCardHideTarget(cardContainer)) return cardContainer;
+
+    return card;
+  }
+
+  function isSafeCardHideTarget(element) {
+    return (
+      element &&
+      !isUnsafePageContainer(element) &&
+      !isTooLargeToHide(element) &&
+      isPotentialVideoCard(element) &&
+      !containsMultipleVideos(element)
+    );
   }
 
   function isDirectVideoOwnerCard(card, uid) {
