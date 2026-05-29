@@ -275,6 +275,12 @@
         background: #00aeec;
       }
 
+      #${MANAGER_PANEL_ID} .buvb-manager-action:disabled {
+        color: #9499a0;
+        background: #e3e5e7;
+        cursor: not-allowed;
+      }
+
       #${MANAGER_PANEL_ID} .buvb-manager-close {
         border: 0;
         border-radius: 50%;
@@ -848,7 +854,7 @@
       <textarea id="${MANAGER_TEXTAREA_ID}" spellcheck="false"></textarea>
       <div class="buvb-manager-help">Enter one UID per line.</div>
       <div class="buvb-manager-actions">
-        <button class="buvb-manager-action buvb-manager-action-primary" type="button" data-action="save">Save</button>
+        <button class="buvb-manager-action buvb-manager-action-primary" type="button" data-action="save" disabled>Save</button>
       </div>
     `;
 
@@ -871,6 +877,12 @@
       }
     });
 
+    panel.addEventListener("input", (event) => {
+      if (event.target && event.target.id === MANAGER_TEXTAREA_ID) {
+        updateManagerSaveButtonState(panel);
+      }
+    });
+
     panel.addEventListener("change", (event) => {
       if (event.target && event.target.id === MANAGER_BLOCK_NEW_USERS_ID) {
         setBlockNewUsersSetting(event.target.checked);
@@ -889,11 +901,23 @@
     const uids = getBlockedUidList();
     const textarea = panel.querySelector(`#${MANAGER_TEXTAREA_ID}`);
     const count = panel.querySelector(".buvb-manager-count");
-    if (textarea) textarea.value = uids.join("\n");
+    if (textarea) {
+      textarea.value = uids.join("\n");
+      textarea.dataset.cleanValue = textarea.value;
+    }
     refreshBlockNewUsersControl(panel);
+    updateManagerSaveButtonState(panel);
     if (count) {
       count.textContent = `${uids.length} blocked ${uids.length === 1 ? "user" : "users"}`;
     }
+  }
+
+  function updateManagerSaveButtonState(panel) {
+    const textarea = panel.querySelector(`#${MANAGER_TEXTAREA_ID}`);
+    const saveButton = panel.querySelector('[data-action="save"]');
+    if (!textarea || !saveButton) return;
+
+    saveButton.disabled = textarea.value === (textarea.dataset.cleanValue || "");
   }
 
   function refreshBlockNewUsersControl(
