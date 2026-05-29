@@ -865,14 +865,13 @@
         <div class="buvb-manager-title">Blocked User UIDs</div>
         <button class="buvb-manager-close" type="button" title="Close">×</button>
       </div>
-      <div class="buvb-manager-count"></div>
       <label class="buvb-manager-option" for="${MANAGER_BLOCK_NEW_USERS_ID}">
         <input id="${MANAGER_BLOCK_NEW_USERS_ID}" type="checkbox">
         <span>Block new users (after 2022-08-30)</span>
       </label>
       <div class="buvb-manager-separator" aria-hidden="true">------------------------------------------------</div>
       <textarea id="${MANAGER_TEXTAREA_ID}" spellcheck="false"></textarea>
-      <div class="buvb-manager-help">Enter one UID per line.</div>
+      <div class="buvb-manager-help"></div>
       <div class="buvb-manager-actions">
         <button class="buvb-manager-action buvb-manager-action-primary" type="button" data-action="save" disabled>Save</button>
       </div>
@@ -920,15 +919,15 @@
 
     const uids = getBlockedUidList();
     const textarea = panel.querySelector(`#${MANAGER_TEXTAREA_ID}`);
-    const count = panel.querySelector(".buvb-manager-count");
+    const help = panel.querySelector(".buvb-manager-help");
     if (textarea) {
       textarea.value = uids.join("\n");
       textarea.dataset.cleanValue = textarea.value;
     }
     refreshBlockNewUsersControl(panel);
     updateManagerSaveButtonState(panel);
-    if (count) {
-      count.textContent = `${uids.length} blocked ${uids.length === 1 ? "user" : "users"}`;
+    if (help) {
+      help.textContent = `Enter one UID per line. ${uids.length} user(s) have been blocked.`;
     }
   }
 
