@@ -1,6 +1,6 @@
 # Bilibili Video Blocker
 
-Bilibili's built-in blocklist is account-bounded and sometimes limited because you want to block more users than you could. This script stores your own in-browser blocklist, hides matching video cards on supported pages, and warns you before accidentally opening a video from a blocked user.
+Bilibili's built-in blocklist is account-bounded and sometimes limited because you want to block more users than you could. This script stores your own in-browser blocklist and hides matching video cards on supported pages.
 
 ## Installation
 

@@ -2,7 +2,7 @@
 // @name         Bilibili Video Blocker
 // @namespace    https://github.com/mr-yifeiwang/bilibili-video-blocker
 // @version      1.1.0
-// @description  Hide Bilibili video cards from blocked uploader UIDs and confirm before watching blocked uploader's videos
+// @description  Hide Bilibili video cards from blocked uploader UIDs
 // @author       mr-yifeiwang
 // @match        https://www.bilibili.com/*
 // @match        https://search.bilibili.com/*
@@ -18,7 +18,6 @@
 
   const BLOCK_ATTR = "data-bilibili-uid-blocked";
   const SCANNED_ATTR = "data-bilibili-uid-scanned";
-  const ALLOW_STORAGE_PREFIX = "bilibili-uid-blocker:allow:";
   const BLOCKLIST_STORAGE_KEY = "bilibili-uid-blocker:blocklist";
   const BLOCK_NEW_USERS_STORAGE_KEY = "bilibili-uid-blocker:block-new-users";
   const USER_BUTTON_ID = "bilibili-uid-blocker-user-button";
@@ -32,7 +31,6 @@
   const MAX_ANCESTOR_STEPS = 8;
   const MAX_CARD_AREA_RATIO = 0.75;
   const RESCAN_INTERVAL_MS = 1500;
-  const DIRECT_VIDEO_CHECK_DELAYS = [250, 1000, 2500];
   const BLOCKED_UIDS = new Set();
   let BLOCK_NEW_USERS = false;
 
@@ -110,8 +108,6 @@
     loadSavedBlockedUids();
     loadBlockNewUsersSetting();
     setupBlocklistSync();
-    checkDirectVideoPage();
-    scheduleDirectVideoPageChecks();
     renderUserPageBlockButton();
     renderBlocklistManager();
 
@@ -126,14 +122,12 @@
     window.addEventListener("pageshow", () => {
       renderUserPageBlockButton();
       renderBlocklistManager();
-      scheduleDirectVideoPageChecks();
       scheduleScan(document.documentElement);
     });
 
     patchHistory("pushState");
     patchHistory("replaceState");
     window.addEventListener("popstate", () => {
-      scheduleDirectVideoPageChecks();
       setTimeout(renderUserPageBlockButton, 0);
       setTimeout(renderBlocklistManager, 0);
     });
@@ -527,7 +521,7 @@
       !card ||
       isUnsafePageContainer(card) ||
       isTooLargeToHide(card) ||
-      isAllowedDirectVideoOwnerCard(card, uid) ||
+      isDirectVideoOwnerCard(card, uid) ||
       containsMultipleVideos(card)
     ) {
       return;
@@ -537,8 +531,8 @@
     card.setAttribute("data-bilibili-uid-blocked-uid", uid);
   }
 
-  function isAllowedDirectVideoOwnerCard(card, uid) {
-    if (!uid || !isAllowedDirectVideoPage()) return false;
+  function isDirectVideoOwnerCard(card, uid) {
+    if (!uid || !isDirectVideoPage()) return false;
     if (uid !== findDirectPageUploaderUid()) return false;
     return (
       !matchesSafely(card, RECOMMENDATION_AREA_SELECTOR) &&
@@ -642,7 +636,6 @@
     BLOCK_NEW_USERS = parseSavedBlockNewUsersSetting(savedValue);
     refreshBlockedCards();
     refreshBlockNewUsersControl();
-    checkDirectVideoPage();
   }
 
   function readSavedBlockedUids() {
@@ -735,7 +728,6 @@
     BLOCK_NEW_USERS = Boolean(blocked);
     saveBlockNewUsersSetting();
     refreshBlockedCards();
-    checkDirectVideoPage();
   }
 
   function refreshBlockedCards() {
@@ -1016,56 +1008,11 @@
     return element instanceof Element && element.matches(selector);
   }
 
-  function checkDirectVideoPage() {
-    if (!isDirectVideoPage()) return;
-
-    if (isAllowedDirectVideoPage()) return;
-
-    const uid = findDirectPageUploaderUid();
-    if (!uid || !isUidBlocked(uid)) return;
-
-    pauseDirectVideoPagePlayback();
-
-    const ok = window.confirm(
-      `This Bilibili video is from blocked uploader UID ${uid}. Do you want to continue watching it?`,
-    );
-    if (ok) {
-      sessionStorage.setItem(getDirectVideoAllowKey(), "true");
-      return;
-    }
-
-    leaveBlockedVideoPage();
-  }
-
-  function pauseDirectVideoPagePlayback() {
-    for (const video of document.querySelectorAll("video")) {
-      video.pause();
-    }
-  }
-
-  function scheduleDirectVideoPageChecks() {
-    for (const delay of DIRECT_VIDEO_CHECK_DELAYS) {
-      setTimeout(checkDirectVideoPage, delay);
-      setTimeout(renderUserPageBlockButton, delay);
-    }
-  }
-
   function isDirectVideoPage() {
     return (
       location.hostname === "www.bilibili.com" &&
       VIDEO_PATH_RE.test(location.pathname)
     );
-  }
-
-  function isAllowedDirectVideoPage() {
-    return (
-      isDirectVideoPage() &&
-      sessionStorage.getItem(getDirectVideoAllowKey()) === "true"
-    );
-  }
-
-  function getDirectVideoAllowKey() {
-    return ALLOW_STORAGE_PREFIX + location.pathname;
   }
 
   function findDirectPageUploaderUid() {
@@ -1105,23 +1052,10 @@
     return "";
   }
 
-  function leaveBlockedVideoPage() {
-    if (history.length > 1) {
-      history.back();
-      setTimeout(() => {
-        if (isDirectVideoPage()) location.assign("https://www.bilibili.com/");
-      }, 800);
-      return;
-    }
-
-    location.assign("https://www.bilibili.com/");
-  }
-
   function patchHistory(methodName) {
     const original = history[methodName];
     history[methodName] = function patchedHistoryMethod(...args) {
       const result = original.apply(this, args);
-      scheduleDirectVideoPageChecks();
       setTimeout(renderUserPageBlockButton, 0);
       setTimeout(renderBlocklistManager, 0);
       setTimeout(() => scheduleScan(document.documentElement), 0);
