@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Bilibili Video Blocker
 // @namespace    https://github.com/mr-yifeiwang/bilibili-video-blocker
-// @version      1.0.0
+// @version      1.1.0
 // @description  Hide Bilibili video cards from blocked uploader UIDs and confirm before watching blocked uploader's videos
 // @author       mr-yifeiwang
 // @match        https://www.bilibili.com/*
@@ -20,11 +20,13 @@
   const SCANNED_ATTR = "data-bilibili-uid-scanned";
   const ALLOW_STORAGE_PREFIX = "bilibili-uid-blocker:allow:";
   const BLOCKLIST_STORAGE_KEY = "bilibili-uid-blocker:blocklist";
+  const BLOCK_NEW_USERS_STORAGE_KEY = "bilibili-uid-blocker:block-new-users";
   const USER_BUTTON_ID = "bilibili-uid-blocker-user-button";
   const MANAGER_BUTTON_ID = "bilibili-uid-blocker-manager-button";
   const FLOATING_BUTTON_CLASS = "bilibili-uid-blocker-floating-button";
   const MANAGER_PANEL_ID = "bilibili-uid-blocker-manager-panel";
   const MANAGER_TEXTAREA_ID = "bilibili-uid-blocker-manager-textarea";
+  const MANAGER_BLOCK_NEW_USERS_ID = "bilibili-uid-blocker-manager-block-new-users";
   const VIDEO_PATH_RE = /\/video\//i;
   const UID_ATTRS = ["data-usercard-mid", "data-mid", "mid"];
   const MAX_ANCESTOR_STEPS = 8;
@@ -32,6 +34,7 @@
   const RESCAN_INTERVAL_MS = 1500;
   const DIRECT_VIDEO_CHECK_DELAYS = [250, 1000, 2500];
   const BLOCKED_UIDS = new Set();
+  let BLOCK_NEW_USERS = false;
 
   const COMMON_CARD_SELECTOR = [
     ".bili-video-card",
@@ -105,6 +108,7 @@
 
   function setupBoot() {
     loadSavedBlockedUids();
+    loadBlockNewUsersSetting();
     setupBlocklistSync();
     checkDirectVideoPage();
     scheduleDirectVideoPageChecks();
@@ -206,6 +210,29 @@
         margin-bottom: 10px;
         color: #61666d;
         font-size: 13px;
+      }
+
+      #${MANAGER_PANEL_ID} .buvb-manager-option {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 10px;
+        color: #18191c;
+        font-size: 13px;
+        cursor: pointer;
+      }
+
+      #${MANAGER_PANEL_ID} .buvb-manager-option input {
+        margin: 0;
+      }
+
+      #${MANAGER_PANEL_ID} .buvb-manager-separator {
+        overflow: hidden;
+        width: 100%;
+        margin: 4px 0 12px;
+        color: #c9ccd0;
+        font: 13px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        white-space: nowrap;
       }
 
       #${MANAGER_TEXTAREA_ID} {
@@ -386,7 +413,15 @@
 
   function getBlockedUidFromElement(element) {
     const uids = getUploaderUidsFromElement(element);
-    return uids.find((uid) => BLOCKED_UIDS.has(uid)) || "";
+    return uids.find(isUidBlocked) || "";
+  }
+
+  function isUidBlocked(uid) {
+    return BLOCKED_UIDS.has(uid) || (BLOCK_NEW_USERS && isNewUserUid(uid));
+  }
+
+  function isNewUserUid(uid) {
+    return /^\d{16}$/.test(uid);
   }
 
   function getUploaderUidsFromElement(element) {
@@ -551,6 +586,10 @@
     replaceRuntimeBlockedUids(readSavedBlockedUids() || []);
   }
 
+  function loadBlockNewUsersSetting() {
+    BLOCK_NEW_USERS = readBlockNewUsersSetting();
+  }
+
   function setupBlocklistSync() {
     if (typeof GM_addValueChangeListener === "function") {
       GM_addValueChangeListener(
@@ -560,12 +599,22 @@
           syncBlockedUidsFromSavedValue(newValue);
         },
       );
+      GM_addValueChangeListener(
+        BLOCK_NEW_USERS_STORAGE_KEY,
+        (_key, _oldValue, newValue, remote) => {
+          if (!remote) return;
+          syncBlockNewUsersFromSavedValue(newValue);
+        },
+      );
       return;
     }
 
     window.addEventListener("storage", (event) => {
-      if (event.key !== BLOCKLIST_STORAGE_KEY) return;
-      syncBlockedUidsFromSavedValue(event.newValue);
+      if (event.key === BLOCKLIST_STORAGE_KEY) {
+        syncBlockedUidsFromSavedValue(event.newValue);
+      } else if (event.key === BLOCK_NEW_USERS_STORAGE_KEY) {
+        syncBlockNewUsersFromSavedValue(event.newValue);
+      }
     });
   }
 
@@ -583,6 +632,13 @@
     }
   }
 
+  function syncBlockNewUsersFromSavedValue(savedValue) {
+    BLOCK_NEW_USERS = parseSavedBlockNewUsersSetting(savedValue);
+    refreshBlockedCards();
+    refreshBlockNewUsersControl();
+    checkDirectVideoPage();
+  }
+
   function readSavedBlockedUids() {
     try {
       const saved =
@@ -592,6 +648,29 @@
       return parseSavedBlockedUids(saved);
     } catch (_error) {
       return [];
+    }
+  }
+
+  function readBlockNewUsersSetting() {
+    try {
+      const saved =
+        typeof GM_getValue === "function"
+          ? GM_getValue(BLOCK_NEW_USERS_STORAGE_KEY, false)
+          : localStorage.getItem(BLOCK_NEW_USERS_STORAGE_KEY);
+      return parseSavedBlockNewUsersSetting(saved);
+    } catch (_error) {
+      return false;
+    }
+  }
+
+  function parseSavedBlockNewUsersSetting(saved) {
+    if (saved === true || saved === "true") return true;
+    if (saved === false || saved == null || saved === "false") return false;
+
+    try {
+      return JSON.parse(saved) === true;
+    } catch (_error) {
+      return false;
     }
   }
 
@@ -632,6 +711,35 @@
     } catch (_error) {
       // Ignore storage failures so blocking still works until reload.
     }
+  }
+
+  function saveBlockNewUsersSetting() {
+    try {
+      if (typeof GM_setValue === "function") {
+        GM_setValue(BLOCK_NEW_USERS_STORAGE_KEY, BLOCK_NEW_USERS);
+      } else {
+        localStorage.setItem(BLOCK_NEW_USERS_STORAGE_KEY, String(BLOCK_NEW_USERS));
+      }
+    } catch (_error) {
+      // Ignore storage failures so blocking still works until reload.
+    }
+  }
+
+  function setBlockNewUsersSetting(blocked) {
+    BLOCK_NEW_USERS = Boolean(blocked);
+    saveBlockNewUsersSetting();
+    refreshBlockedCards();
+    checkDirectVideoPage();
+  }
+
+  function refreshBlockedCards() {
+    for (const card of document.querySelectorAll(`[${BLOCK_ATTR}="true"]`)) {
+      card.removeAttribute(BLOCK_ATTR);
+      card.removeAttribute("data-bilibili-uid-blocked-uid");
+      card.removeAttribute(SCANNED_ATTR);
+    }
+
+    scan(document.documentElement, true);
   }
 
   function getBlockedUidList() {
@@ -732,6 +840,11 @@
         <button class="buvb-manager-close" type="button" title="Close">×</button>
       </div>
       <div class="buvb-manager-count"></div>
+      <label class="buvb-manager-option" for="${MANAGER_BLOCK_NEW_USERS_ID}">
+        <input id="${MANAGER_BLOCK_NEW_USERS_ID}" type="checkbox">
+        <span>Block new users (after 2022-08-30)</span>
+      </label>
+      <div class="buvb-manager-separator" aria-hidden="true">------------------------------------------------</div>
       <textarea id="${MANAGER_TEXTAREA_ID}" spellcheck="false"></textarea>
       <div class="buvb-manager-help">Enter one UID per line.</div>
       <div class="buvb-manager-actions">
@@ -765,6 +878,12 @@
       }
     });
 
+    panel.addEventListener("change", (event) => {
+      if (event.target && event.target.id === MANAGER_BLOCK_NEW_USERS_ID) {
+        setBlockNewUsersSetting(event.target.checked);
+      }
+    });
+
     refreshBlocklistManagerPanel(panel);
     return panel;
   }
@@ -778,9 +897,19 @@
     const textarea = panel.querySelector(`#${MANAGER_TEXTAREA_ID}`);
     const count = panel.querySelector(".buvb-manager-count");
     if (textarea) textarea.value = uids.join("\n");
+    refreshBlockNewUsersControl(panel);
     if (count) {
       count.textContent = `${uids.length} blocked ${uids.length === 1 ? "user" : "users"}`;
     }
+  }
+
+  function refreshBlockNewUsersControl(
+    panel = document.getElementById(MANAGER_PANEL_ID),
+  ) {
+    if (!panel) return;
+
+    const blockNewUsers = panel.querySelector(`#${MANAGER_BLOCK_NEW_USERS_ID}`);
+    if (blockNewUsers) blockNewUsers.checked = BLOCK_NEW_USERS;
   }
 
   function isBlocklistManagerPage() {
@@ -876,7 +1005,7 @@
     if (isAllowedDirectVideoPage()) return;
 
     const uid = findDirectPageUploaderUid();
-    if (!uid || !BLOCKED_UIDS.has(uid)) return;
+    if (!uid || !isUidBlocked(uid)) return;
 
     pauseDirectVideoPagePlayback();
 
