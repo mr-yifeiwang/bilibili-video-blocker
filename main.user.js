@@ -828,8 +828,6 @@
   }
 
   function getCurrentUserPageUid() {
-    if (isDirectVideoPage()) return findDirectPageUploaderUid();
-
     if (location.hostname !== "space.bilibili.com") return "";
     const match = location.pathname.match(/^\/(\d+)(?:\/|$)/);
     return match ? normalizeUid(match[1]) : "";
