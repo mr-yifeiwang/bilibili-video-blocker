@@ -980,7 +980,7 @@
   }
 
   function isCardBlockingPage() {
-    return isBlocklistManagerPage();
+    return isBlocklistManagerPage() || isDirectVideoPage();
   }
 
   function isBilibiliHomePage() {
