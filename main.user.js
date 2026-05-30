@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Bilibili Video Blocker
 // @namespace    https://github.com/mr-yifeiwang/bilibili-video-blocker
-// @version      1.2.0
-// @description  Hide Bilibili video cards from blocked uploader UIDs
+// @version      1.3.0
+// @description  Hide Bilibili video cards conditionally
 // @author       mr-yifeiwang
 // @match        https://www.bilibili.com/*
 // @match        https://search.bilibili.com/*
@@ -22,6 +22,8 @@
   const BLOCK_NEW_USERS_STORAGE_KEY = "bilibili-uid-blocker:block-new-users";
   const HIDE_SHORT_VIDEOS_STORAGE_KEY =
     "bilibili-uid-blocker:hide-short-videos";
+  const HIDE_UNPOPULAR_VIDEOS_STORAGE_KEY =
+    "bilibili-uid-blocker:hide-unpopular-videos";
   const USER_BUTTON_ID = "bilibili-uid-blocker-user-button";
   const MANAGER_BUTTON_ID = "bilibili-uid-blocker-manager-button";
   const FLOATING_BUTTON_CLASS = "bilibili-uid-blocker-floating-button";
@@ -31,8 +33,11 @@
     "bilibili-uid-blocker-manager-block-new-users";
   const MANAGER_HIDE_SHORT_VIDEOS_ID =
     "bilibili-uid-blocker-manager-hide-short-videos";
+  const MANAGER_HIDE_UNPOPULAR_VIDEOS_ID =
+    "bilibili-uid-blocker-manager-hide-unpopular-videos";
   const VIDEO_PATH_RE = /\/video\//i;
   const SHORT_VIDEO_MAX_SECONDS = 5 * 60;
+  const UNPOPULAR_VIDEO_MAX_VIEWS = 10000;
   const UID_ATTRS = ["data-usercard-mid", "data-mid", "mid"];
   const MAX_ANCESTOR_STEPS = 8;
   const MAX_CARD_AREA_RATIO = 0.75;
@@ -40,6 +45,7 @@
   const BLOCKED_UIDS = new Set();
   let BLOCK_NEW_USERS = false;
   let HIDE_SHORT_VIDEOS = false;
+  let HIDE_UNPOPULAR_VIDEOS = false;
 
   const COMMON_CARD_SELECTOR = [
     ".bili-video-card",
@@ -118,6 +124,15 @@
     '[class*="Duration"]',
   ].join(",");
 
+  const VIDEO_VIEW_COUNT_SELECTOR = [
+    '[class*="play"]',
+    '[class*="Play"]',
+    '[class*="view"]',
+    '[class*="View"]',
+    '[class*="stat"]',
+    '[class*="Stat"]',
+  ].join(",");
+
   addBlockingStyle();
   setupBoot();
 
@@ -125,6 +140,7 @@
     loadSavedBlockedUids();
     loadBlockNewUsersSetting();
     loadHideShortVideosSetting();
+    loadHideUnpopularVideosSetting();
     setupBlocklistSync();
     renderUserPageBlockButton();
     renderBlocklistManager();
@@ -424,6 +440,15 @@
         continue;
       }
 
+      if (
+        HIDE_UNPOPULAR_VIDEOS &&
+        isSafeUnpopularVideoCard(card) &&
+        isUnpopularVideoCard(card)
+      ) {
+        hideCard(card, "");
+        continue;
+      }
+
       const uid = getBlockedUidInside(card);
       if (uid) hideCard(card, uid);
     }
@@ -435,6 +460,15 @@
   }
 
   function isSafeShortVideoCard(card) {
+    return !isDirectVideoPage() || isInsideRecommendationArea(card);
+  }
+
+  function isUnpopularVideoCard(card) {
+    const viewCount = getVideoViewCount(card);
+    return viewCount > 0 && viewCount < UNPOPULAR_VIDEO_MAX_VIEWS;
+  }
+
+  function isSafeUnpopularVideoCard(card) {
     return !isDirectVideoPage() || isInsideRecommendationArea(card);
   }
 
@@ -483,6 +517,64 @@
     return (
       Number(match[1]) * 60 * 60 + Number(match[2]) * 60 + Number(match[3])
     );
+  }
+
+  function getVideoViewCount(card) {
+    for (const element of getPreferredViewCountElements(card)) {
+      const viewCount = parseViewCount(element.textContent || "");
+      if (viewCount > 0) return viewCount;
+    }
+
+    for (const element of getFallbackViewCountElements(card)) {
+      const viewCount = parseViewCount(element.textContent || "");
+      if (viewCount > 0) return viewCount;
+    }
+
+    return 0;
+  }
+
+  function getPreferredViewCountElements(card) {
+    const elements = new Set();
+    for (const element of card.querySelectorAll(VIDEO_VIEW_COUNT_SELECTOR)) {
+      if (isViewCountElement(element)) elements.add(element);
+    }
+
+    return [...elements];
+  }
+
+  function getFallbackViewCountElements(card) {
+    return [...card.querySelectorAll(VIDEO_VIEW_COUNT_SELECTOR)].filter(
+      (element) =>
+        !matchesSafely(element, VIDEO_DURATION_SELECTOR) &&
+        element.children.length === 0,
+    );
+  }
+
+  function isViewCountElement(element) {
+    if (matchesSafely(element, VIDEO_DURATION_SELECTOR)) return false;
+
+    const clueText = `${element.className || ""} ${
+      element.getAttribute("aria-label") || ""
+    } ${element.getAttribute("title") || ""} ${element.textContent || ""}`;
+    return /play|view|播放|观看/i.test(clueText);
+  }
+
+  function parseViewCount(text) {
+    const normalizedText = String(text || "")
+      .replace(/,/g, "")
+      .trim();
+    if (!normalizedText || normalizedText.includes(":")) return 0;
+
+    const match = normalizedText.match(/(\d+(?:\.\d+)?)\s*([万亿]?)/);
+    if (!match) return 0;
+
+    const value = Number(match[1]);
+    if (!Number.isFinite(value)) return 0;
+
+    const unit = match[2];
+    if (unit === "万") return value * 10000;
+    if (unit === "亿") return value * 100000000;
+    return value;
   }
 
   function getBlockedUidInside(container) {
@@ -698,6 +790,10 @@
     HIDE_SHORT_VIDEOS = readHideShortVideosSetting();
   }
 
+  function loadHideUnpopularVideosSetting() {
+    HIDE_UNPOPULAR_VIDEOS = readHideUnpopularVideosSetting();
+  }
+
   function setupBlocklistSync() {
     if (typeof GM_addValueChangeListener === "function") {
       GM_addValueChangeListener(
@@ -721,6 +817,13 @@
           syncHideShortVideosFromSavedValue(newValue);
         },
       );
+      GM_addValueChangeListener(
+        HIDE_UNPOPULAR_VIDEOS_STORAGE_KEY,
+        (_key, _oldValue, newValue, remote) => {
+          if (!remote) return;
+          syncHideUnpopularVideosFromSavedValue(newValue);
+        },
+      );
       return;
     }
 
@@ -731,6 +834,8 @@
         syncBlockNewUsersFromSavedValue(event.newValue);
       } else if (event.key === HIDE_SHORT_VIDEOS_STORAGE_KEY) {
         syncHideShortVideosFromSavedValue(event.newValue);
+      } else if (event.key === HIDE_UNPOPULAR_VIDEOS_STORAGE_KEY) {
+        syncHideUnpopularVideosFromSavedValue(event.newValue);
       }
     });
   }
@@ -759,6 +864,12 @@
     HIDE_SHORT_VIDEOS = parseSavedHideShortVideosSetting(savedValue);
     refreshBlockedCards();
     refreshHideShortVideosControl();
+  }
+
+  function syncHideUnpopularVideosFromSavedValue(savedValue) {
+    HIDE_UNPOPULAR_VIDEOS = parseSavedHideUnpopularVideosSetting(savedValue);
+    refreshBlockedCards();
+    refreshHideUnpopularVideosControl();
   }
 
   function readSavedBlockedUids() {
@@ -797,6 +908,18 @@
     }
   }
 
+  function readHideUnpopularVideosSetting() {
+    try {
+      const saved =
+        typeof GM_getValue === "function"
+          ? GM_getValue(HIDE_UNPOPULAR_VIDEOS_STORAGE_KEY, false)
+          : localStorage.getItem(HIDE_UNPOPULAR_VIDEOS_STORAGE_KEY);
+      return parseSavedHideUnpopularVideosSetting(saved);
+    } catch (_error) {
+      return false;
+    }
+  }
+
   function parseSavedBlockNewUsersSetting(saved) {
     if (saved === true || saved === "true") return true;
     if (saved === false || saved == null || saved === "false") return false;
@@ -809,6 +932,17 @@
   }
 
   function parseSavedHideShortVideosSetting(saved) {
+    if (saved === true || saved === "true") return true;
+    if (saved === false || saved == null || saved === "false") return false;
+
+    try {
+      return JSON.parse(saved) === true;
+    } catch (_error) {
+      return false;
+    }
+  }
+
+  function parseSavedHideUnpopularVideosSetting(saved) {
     if (saved === true || saved === "true") return true;
     if (saved === false || saved == null || saved === "false") return false;
 
@@ -888,6 +1022,21 @@
     }
   }
 
+  function saveHideUnpopularVideosSetting() {
+    try {
+      if (typeof GM_setValue === "function") {
+        GM_setValue(HIDE_UNPOPULAR_VIDEOS_STORAGE_KEY, HIDE_UNPOPULAR_VIDEOS);
+      } else {
+        localStorage.setItem(
+          HIDE_UNPOPULAR_VIDEOS_STORAGE_KEY,
+          String(HIDE_UNPOPULAR_VIDEOS),
+        );
+      }
+    } catch (_error) {
+      // Ignore storage failures so blocking still works until reload.
+    }
+  }
+
   function setBlockNewUsersSetting(blocked) {
     BLOCK_NEW_USERS = Boolean(blocked);
     saveBlockNewUsersSetting();
@@ -897,6 +1046,12 @@
   function setHideShortVideosSetting(hidden) {
     HIDE_SHORT_VIDEOS = Boolean(hidden);
     saveHideShortVideosSetting();
+    refreshBlockedCards();
+  }
+
+  function setHideUnpopularVideosSetting(hidden) {
+    HIDE_UNPOPULAR_VIDEOS = Boolean(hidden);
+    saveHideUnpopularVideosSetting();
     refreshBlockedCards();
   }
 
@@ -1015,6 +1170,10 @@
         <input id="${MANAGER_HIDE_SHORT_VIDEOS_ID}" type="checkbox">
         <span>Hide short videos (&lt; 5 min)</span>
       </label>
+      <label class="buvb-manager-option" for="${MANAGER_HIDE_UNPOPULAR_VIDEOS_ID}">
+        <input id="${MANAGER_HIDE_UNPOPULAR_VIDEOS_ID}" type="checkbox">
+        <span>Hide unpopular videos (&lt; 10K views)</span>
+      </label>
       <div class="buvb-manager-separator" aria-hidden="true">------------------------------------------------</div>
       <textarea id="${MANAGER_TEXTAREA_ID}" spellcheck="false"></textarea>
       <div class="buvb-manager-help"></div>
@@ -1056,6 +1215,11 @@
         event.target.id === MANAGER_HIDE_SHORT_VIDEOS_ID
       ) {
         setHideShortVideosSetting(event.target.checked);
+      } else if (
+        event.target &&
+        event.target.id === MANAGER_HIDE_UNPOPULAR_VIDEOS_ID
+      ) {
+        setHideUnpopularVideosSetting(event.target.checked);
       }
     });
 
@@ -1077,6 +1241,7 @@
     }
     refreshBlockNewUsersControl(panel);
     refreshHideShortVideosControl(panel);
+    refreshHideUnpopularVideosControl(panel);
     updateManagerSaveButtonState(panel);
     if (help) {
       help.textContent = `Enter one UID per line. ${uids.length} user(s) have been blocked.`;
@@ -1110,6 +1275,19 @@
       `#${MANAGER_HIDE_SHORT_VIDEOS_ID}`,
     );
     if (hideShortVideos) hideShortVideos.checked = HIDE_SHORT_VIDEOS;
+  }
+
+  function refreshHideUnpopularVideosControl(
+    panel = document.getElementById(MANAGER_PANEL_ID),
+  ) {
+    if (!panel) return;
+
+    const hideUnpopularVideos = panel.querySelector(
+      `#${MANAGER_HIDE_UNPOPULAR_VIDEOS_ID}`,
+    );
+    if (hideUnpopularVideos) {
+      hideUnpopularVideos.checked = HIDE_UNPOPULAR_VIDEOS;
+    }
   }
 
   function isBlocklistManagerPage() {

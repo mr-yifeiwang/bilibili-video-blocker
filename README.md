@@ -3,7 +3,9 @@
 Bilibili's built-in blocklist is account-bounded and sometimes limited. This script stores your own in-browser blocklist and hides matching video cards on supported pages. It can filter out the videos:
 
 - Uploaded by specific users
+- Uploaded by new accounts created after August 30, 2022
 - Shorter than 5 minutes
+- Viewed by fewer than 10k times
 
 ## Installation
 
