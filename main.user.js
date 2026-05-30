@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Bilibili Video Blocker
 // @namespace    https://github.com/mr-yifeiwang/bilibili-video-blocker
-// @version      1.3.2
+// @version      1.3.3
 // @description  Hide Bilibili video cards conditionally
 // @author       mr-yifeiwang
 // @match        https://www.bilibili.com/*
@@ -468,7 +468,7 @@
 
   function isUnpopularVideoCard(card) {
     const viewCount = getVideoViewCount(card);
-    return viewCount > 0 && viewCount < UNPOPULAR_VIDEO_MAX_VIEWS;
+    return viewCount != null && viewCount < UNPOPULAR_VIDEO_MAX_VIEWS;
   }
 
   function isSafeUnpopularVideoCard(card) {
@@ -532,15 +532,15 @@
   function getVideoViewCount(card) {
     for (const element of getPreferredViewCountElements(card)) {
       const viewCount = parseViewCount(element.textContent || "");
-      if (viewCount > 0) return viewCount;
+      if (viewCount != null) return viewCount;
     }
 
     for (const element of getFallbackViewCountElements(card)) {
       const viewCount = parseViewCount(element.textContent || "");
-      if (viewCount > 0) return viewCount;
+      if (viewCount != null) return viewCount;
     }
 
-    return 0;
+    return null;
   }
 
   function getPreferredViewCountElements(card) {
@@ -571,7 +571,7 @@
 
   function isLikelyViewCountFallbackElement(element) {
     const text = element.textContent || "";
-    if (!parseViewCount(text)) return false;
+    if (parseViewCount(text) == null) return false;
     if (text.includes(":")) return false;
 
     const clueText = `${element.className || ""} ${
@@ -584,13 +584,13 @@
     const normalizedText = String(text || "")
       .replace(/,/g, "")
       .trim();
-    if (!normalizedText || normalizedText.includes(":")) return 0;
+    if (!normalizedText || normalizedText.includes(":")) return null;
 
     const match = normalizedText.match(/(\d+(?:\.\d+)?)\s*([万亿]?)/);
-    if (!match) return 0;
+    if (!match) return null;
 
     const value = Number(match[1]);
-    if (!Number.isFinite(value)) return 0;
+    if (!Number.isFinite(value)) return null;
 
     const unit = match[2];
     if (unit === "万") return value * 10000;
