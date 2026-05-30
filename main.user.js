@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Bilibili Video Blocker
 // @namespace    https://github.com/mr-yifeiwang/bilibili-video-blocker
-// @version      1.1.1
+// @version      1.2.0
 // @description  Hide Bilibili video cards from blocked uploader UIDs
 // @author       mr-yifeiwang
 // @match        https://www.bilibili.com/*
@@ -20,19 +20,26 @@
   const SCANNED_ATTR = "data-bilibili-uid-scanned";
   const BLOCKLIST_STORAGE_KEY = "bilibili-uid-blocker:blocklist";
   const BLOCK_NEW_USERS_STORAGE_KEY = "bilibili-uid-blocker:block-new-users";
+  const HIDE_SHORT_VIDEOS_STORAGE_KEY =
+    "bilibili-uid-blocker:hide-short-videos";
   const USER_BUTTON_ID = "bilibili-uid-blocker-user-button";
   const MANAGER_BUTTON_ID = "bilibili-uid-blocker-manager-button";
   const FLOATING_BUTTON_CLASS = "bilibili-uid-blocker-floating-button";
   const MANAGER_PANEL_ID = "bilibili-uid-blocker-manager-panel";
   const MANAGER_TEXTAREA_ID = "bilibili-uid-blocker-manager-textarea";
-  const MANAGER_BLOCK_NEW_USERS_ID = "bilibili-uid-blocker-manager-block-new-users";
+  const MANAGER_BLOCK_NEW_USERS_ID =
+    "bilibili-uid-blocker-manager-block-new-users";
+  const MANAGER_HIDE_SHORT_VIDEOS_ID =
+    "bilibili-uid-blocker-manager-hide-short-videos";
   const VIDEO_PATH_RE = /\/video\//i;
+  const SHORT_VIDEO_MAX_SECONDS = 5 * 60;
   const UID_ATTRS = ["data-usercard-mid", "data-mid", "mid"];
   const MAX_ANCESTOR_STEPS = 8;
   const MAX_CARD_AREA_RATIO = 0.75;
   const RESCAN_INTERVAL_MS = 1500;
   const BLOCKED_UIDS = new Set();
   let BLOCK_NEW_USERS = false;
+  let HIDE_SHORT_VIDEOS = false;
 
   const COMMON_CARD_SELECTOR = [
     ".bili-video-card",
@@ -106,12 +113,18 @@
     '[class*="Owner"] a[href*="space.bilibili.com/"]',
   ].join(",");
 
+  const VIDEO_DURATION_SELECTOR = [
+    '[class*="duration"]',
+    '[class*="Duration"]',
+  ].join(",");
+
   addBlockingStyle();
   setupBoot();
 
   function setupBoot() {
     loadSavedBlockedUids();
     loadBlockNewUsersSetting();
+    loadHideShortVideosSetting();
     setupBlocklistSync();
     renderUserPageBlockButton();
     renderBlocklistManager();
@@ -402,9 +415,74 @@
       if (!force && card.getAttribute(SCANNED_ATTR) === "card") continue;
       card.setAttribute(SCANNED_ATTR, "card");
 
+      if (
+        HIDE_SHORT_VIDEOS &&
+        isSafeShortVideoCard(card) &&
+        isShortVideoCard(card)
+      ) {
+        hideCard(card, "");
+        continue;
+      }
+
       const uid = getBlockedUidInside(card);
       if (uid) hideCard(card, uid);
     }
+  }
+
+  function isShortVideoCard(card) {
+    const durationSeconds = getVideoDurationSeconds(card);
+    return durationSeconds > 0 && durationSeconds < SHORT_VIDEO_MAX_SECONDS;
+  }
+
+  function isSafeShortVideoCard(card) {
+    return !isDirectVideoPage() || isInsideRecommendationArea(card);
+  }
+
+  function getVideoDurationSeconds(card) {
+    for (const element of getDurationElements(card)) {
+      const seconds = parseDurationSeconds((element.textContent || "").trim());
+      if (seconds > 0) return seconds;
+    }
+
+    return 0;
+  }
+
+  function getDurationElements(card) {
+    const elements = new Set();
+    if (matchesSafely(card, VIDEO_DURATION_SELECTOR)) elements.add(card);
+    for (const element of card.querySelectorAll(VIDEO_DURATION_SELECTOR)) {
+      elements.add(element);
+    }
+
+    for (const element of card.querySelectorAll("*")) {
+      if (
+        element.children.length === 0 &&
+        isExactDurationText(element.textContent)
+      ) {
+        elements.add(element);
+      }
+    }
+
+    return [...elements];
+  }
+
+  function isExactDurationText(text) {
+    return /^\s*\d{1,2}:\d{2}(?::\d{2})?\s*$/.test(text || "");
+  }
+
+  function parseDurationSeconds(text) {
+    if (!text) return 0;
+
+    const match = String(text).match(/^\s*(\d{1,2}):(\d{2})(?::(\d{2}))?\s*$/);
+    if (!match) return 0;
+
+    if (match[3] == null) {
+      return Number(match[1]) * 60 + Number(match[2]);
+    }
+
+    return (
+      Number(match[1]) * 60 * 60 + Number(match[2]) * 60 + Number(match[3])
+    );
   }
 
   function getBlockedUidInside(container) {
@@ -541,9 +619,7 @@
   function getCardHideTarget(card) {
     if (!card) return null;
 
-    const cardContainer = card.closest(
-      RECOMMENDATION_CARD_CONTAINER_SELECTOR,
-    );
+    const cardContainer = card.closest(RECOMMENDATION_CARD_CONTAINER_SELECTOR);
     if (isSafeCardHideTarget(cardContainer)) return cardContainer;
 
     return card;
@@ -618,6 +694,10 @@
     BLOCK_NEW_USERS = readBlockNewUsersSetting();
   }
 
+  function loadHideShortVideosSetting() {
+    HIDE_SHORT_VIDEOS = readHideShortVideosSetting();
+  }
+
   function setupBlocklistSync() {
     if (typeof GM_addValueChangeListener === "function") {
       GM_addValueChangeListener(
@@ -634,6 +714,13 @@
           syncBlockNewUsersFromSavedValue(newValue);
         },
       );
+      GM_addValueChangeListener(
+        HIDE_SHORT_VIDEOS_STORAGE_KEY,
+        (_key, _oldValue, newValue, remote) => {
+          if (!remote) return;
+          syncHideShortVideosFromSavedValue(newValue);
+        },
+      );
       return;
     }
 
@@ -642,6 +729,8 @@
         syncBlockedUidsFromSavedValue(event.newValue);
       } else if (event.key === BLOCK_NEW_USERS_STORAGE_KEY) {
         syncBlockNewUsersFromSavedValue(event.newValue);
+      } else if (event.key === HIDE_SHORT_VIDEOS_STORAGE_KEY) {
+        syncHideShortVideosFromSavedValue(event.newValue);
       }
     });
   }
@@ -664,6 +753,12 @@
     BLOCK_NEW_USERS = parseSavedBlockNewUsersSetting(savedValue);
     refreshBlockedCards();
     refreshBlockNewUsersControl();
+  }
+
+  function syncHideShortVideosFromSavedValue(savedValue) {
+    HIDE_SHORT_VIDEOS = parseSavedHideShortVideosSetting(savedValue);
+    refreshBlockedCards();
+    refreshHideShortVideosControl();
   }
 
   function readSavedBlockedUids() {
@@ -690,7 +785,30 @@
     }
   }
 
+  function readHideShortVideosSetting() {
+    try {
+      const saved =
+        typeof GM_getValue === "function"
+          ? GM_getValue(HIDE_SHORT_VIDEOS_STORAGE_KEY, false)
+          : localStorage.getItem(HIDE_SHORT_VIDEOS_STORAGE_KEY);
+      return parseSavedHideShortVideosSetting(saved);
+    } catch (_error) {
+      return false;
+    }
+  }
+
   function parseSavedBlockNewUsersSetting(saved) {
+    if (saved === true || saved === "true") return true;
+    if (saved === false || saved == null || saved === "false") return false;
+
+    try {
+      return JSON.parse(saved) === true;
+    } catch (_error) {
+      return false;
+    }
+  }
+
+  function parseSavedHideShortVideosSetting(saved) {
     if (saved === true || saved === "true") return true;
     if (saved === false || saved == null || saved === "false") return false;
 
@@ -745,7 +863,25 @@
       if (typeof GM_setValue === "function") {
         GM_setValue(BLOCK_NEW_USERS_STORAGE_KEY, BLOCK_NEW_USERS);
       } else {
-        localStorage.setItem(BLOCK_NEW_USERS_STORAGE_KEY, String(BLOCK_NEW_USERS));
+        localStorage.setItem(
+          BLOCK_NEW_USERS_STORAGE_KEY,
+          String(BLOCK_NEW_USERS),
+        );
+      }
+    } catch (_error) {
+      // Ignore storage failures so blocking still works until reload.
+    }
+  }
+
+  function saveHideShortVideosSetting() {
+    try {
+      if (typeof GM_setValue === "function") {
+        GM_setValue(HIDE_SHORT_VIDEOS_STORAGE_KEY, HIDE_SHORT_VIDEOS);
+      } else {
+        localStorage.setItem(
+          HIDE_SHORT_VIDEOS_STORAGE_KEY,
+          String(HIDE_SHORT_VIDEOS),
+        );
       }
     } catch (_error) {
       // Ignore storage failures so blocking still works until reload.
@@ -755,6 +891,12 @@
   function setBlockNewUsersSetting(blocked) {
     BLOCK_NEW_USERS = Boolean(blocked);
     saveBlockNewUsersSetting();
+    refreshBlockedCards();
+  }
+
+  function setHideShortVideosSetting(hidden) {
+    HIDE_SHORT_VIDEOS = Boolean(hidden);
+    saveHideShortVideosSetting();
     refreshBlockedCards();
   }
 
@@ -869,6 +1011,10 @@
         <input id="${MANAGER_BLOCK_NEW_USERS_ID}" type="checkbox">
         <span>Block new users (after 2022-08-30)</span>
       </label>
+      <label class="buvb-manager-option" for="${MANAGER_HIDE_SHORT_VIDEOS_ID}">
+        <input id="${MANAGER_HIDE_SHORT_VIDEOS_ID}" type="checkbox">
+        <span>Hide short videos (&lt; 5 min)</span>
+      </label>
       <div class="buvb-manager-separator" aria-hidden="true">------------------------------------------------</div>
       <textarea id="${MANAGER_TEXTAREA_ID}" spellcheck="false"></textarea>
       <div class="buvb-manager-help"></div>
@@ -905,6 +1051,11 @@
     panel.addEventListener("change", (event) => {
       if (event.target && event.target.id === MANAGER_BLOCK_NEW_USERS_ID) {
         setBlockNewUsersSetting(event.target.checked);
+      } else if (
+        event.target &&
+        event.target.id === MANAGER_HIDE_SHORT_VIDEOS_ID
+      ) {
+        setHideShortVideosSetting(event.target.checked);
       }
     });
 
@@ -925,6 +1076,7 @@
       textarea.dataset.cleanValue = textarea.value;
     }
     refreshBlockNewUsersControl(panel);
+    refreshHideShortVideosControl(panel);
     updateManagerSaveButtonState(panel);
     if (help) {
       help.textContent = `Enter one UID per line. ${uids.length} user(s) have been blocked.`;
@@ -936,7 +1088,8 @@
     const saveButton = panel.querySelector('[data-action="save"]');
     if (!textarea || !saveButton) return;
 
-    saveButton.disabled = textarea.value === (textarea.dataset.cleanValue || "");
+    saveButton.disabled =
+      textarea.value === (textarea.dataset.cleanValue || "");
   }
 
   function refreshBlockNewUsersControl(
@@ -946,6 +1099,17 @@
 
     const blockNewUsers = panel.querySelector(`#${MANAGER_BLOCK_NEW_USERS_ID}`);
     if (blockNewUsers) blockNewUsers.checked = BLOCK_NEW_USERS;
+  }
+
+  function refreshHideShortVideosControl(
+    panel = document.getElementById(MANAGER_PANEL_ID),
+  ) {
+    if (!panel) return;
+
+    const hideShortVideos = panel.querySelector(
+      `#${MANAGER_HIDE_SHORT_VIDEOS_ID}`,
+    );
+    if (hideShortVideos) hideShortVideos.checked = HIDE_SHORT_VIDEOS;
   }
 
   function isBlocklistManagerPage() {
