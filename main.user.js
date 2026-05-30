@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Bilibili Video Blocker
 // @namespace    https://github.com/mr-yifeiwang/bilibili-video-blocker
-// @version      1.3.1
+// @version      1.3.2
 // @description  Hide Bilibili video cards conditionally
 // @author       mr-yifeiwang
 // @match        https://www.bilibili.com/*
@@ -104,6 +104,8 @@
     ".video-page-card-small",
     '[class*="col_"][class*="mb_"]',
   ].join(",");
+
+  const SEARCH_PROTECTED_VIDEO_CARD_SELECTOR = ".b-user-video-card";
 
   const VIDEO_OWNER_SELECTOR = [
     '.up-info-container .up-name[href*="space.bilibili.com/"]',
@@ -430,6 +432,7 @@
     for (const card of cards) {
       if (!force && card.getAttribute(SCANNED_ATTR) === "card") continue;
       card.setAttribute(SCANNED_ATTR, "card");
+      if (isProtectedSearchVideoCard(card)) continue;
 
       if (
         HIDE_SHORT_VIDEOS &&
@@ -470,6 +473,13 @@
 
   function isSafeUnpopularVideoCard(card) {
     return !isDirectVideoPage() || isInsideRecommendationArea(card);
+  }
+
+  function isProtectedSearchVideoCard(element) {
+    return (
+      isSearchPage() &&
+      Boolean(element && element.closest(SEARCH_PROTECTED_VIDEO_CARD_SELECTOR))
+    );
   }
 
   function getVideoDurationSeconds(card) {
@@ -709,6 +719,8 @@
       !target ||
       isUnsafePageContainer(target) ||
       isTooLargeToHide(target) ||
+      isProtectedSearchVideoCard(card) ||
+      isProtectedSearchVideoCard(target) ||
       isDirectVideoOwnerCard(target, uid) ||
       containsMultipleVideos(target)
     ) {
