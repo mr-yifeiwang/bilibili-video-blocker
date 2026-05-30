@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Bilibili Video Blocker
 // @namespace    https://github.com/mr-yifeiwang/bilibili-video-blocker
-// @version      1.3.0
+// @version      1.3.1
 // @description  Hide Bilibili video cards conditionally
 // @author       mr-yifeiwang
 // @match        https://www.bilibili.com/*
@@ -546,7 +546,7 @@
     return [...card.querySelectorAll(VIDEO_VIEW_COUNT_SELECTOR)].filter(
       (element) =>
         !matchesSafely(element, VIDEO_DURATION_SELECTOR) &&
-        element.children.length === 0,
+        isLikelyViewCountFallbackElement(element),
     );
   }
 
@@ -557,6 +557,17 @@
       element.getAttribute("aria-label") || ""
     } ${element.getAttribute("title") || ""} ${element.textContent || ""}`;
     return /play|view|播放|观看/i.test(clueText);
+  }
+
+  function isLikelyViewCountFallbackElement(element) {
+    const text = element.textContent || "";
+    if (!parseViewCount(text)) return false;
+    if (text.includes(":")) return false;
+
+    const clueText = `${element.className || ""} ${
+      element.getAttribute("aria-label") || ""
+    } ${element.getAttribute("title") || ""}`;
+    return /stat|播放|观看|play|view/i.test(clueText);
   }
 
   function parseViewCount(text) {
