@@ -186,6 +186,11 @@
         outline-offset: -2px;
       }
 
+      [${PREVIEW_ATTR}="true"] * {
+        background: transparent !important;
+        background-color: transparent !important;
+      }
+
       .${FLOATING_BUTTON_CLASS} {
         position: fixed;
         top: 72px;
