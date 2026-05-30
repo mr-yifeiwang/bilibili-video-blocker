@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Bilibili Video Blocker
 // @namespace    https://github.com/mr-yifeiwang/bilibili-video-blocker
-// @version      1.3.3
+// @version      1.4.0
 // @description  Hide Bilibili video cards conditionally
 // @author       mr-yifeiwang
 // @match        https://www.bilibili.com/*
@@ -17,9 +17,11 @@
   "use strict";
 
   const BLOCK_ATTR = "data-bilibili-uid-blocked";
+  const PREVIEW_ATTR = "data-bilibili-uid-previewed";
   const SCANNED_ATTR = "data-bilibili-uid-scanned";
   const BLOCKLIST_STORAGE_KEY = "bilibili-uid-blocker:blocklist";
   const BLOCK_NEW_USERS_STORAGE_KEY = "bilibili-uid-blocker:block-new-users";
+  const PREVIEW_MODE_STORAGE_KEY = "bilibili-uid-blocker:preview-mode";
   const HIDE_SHORT_VIDEOS_STORAGE_KEY =
     "bilibili-uid-blocker:hide-short-videos";
   const HIDE_UNPOPULAR_VIDEOS_STORAGE_KEY =
@@ -35,6 +37,7 @@
     "bilibili-uid-blocker-manager-hide-short-videos";
   const MANAGER_HIDE_UNPOPULAR_VIDEOS_ID =
     "bilibili-uid-blocker-manager-hide-unpopular-videos";
+  const MANAGER_PREVIEW_MODE_ID = "bilibili-uid-blocker-manager-preview-mode";
   const VIDEO_PATH_RE = /\/video\//i;
   const SHORT_VIDEO_MAX_SECONDS = 5 * 60;
   const UNPOPULAR_VIDEO_MAX_VIEWS = 10000;
@@ -44,6 +47,7 @@
   const RESCAN_INTERVAL_MS = 1500;
   const BLOCKED_UIDS = new Set();
   let BLOCK_NEW_USERS = false;
+  let PREVIEW_MODE = false;
   let HIDE_SHORT_VIDEOS = false;
   let HIDE_UNPOPULAR_VIDEOS = false;
 
@@ -141,6 +145,7 @@
   function setupBoot() {
     loadSavedBlockedUids();
     loadBlockNewUsersSetting();
+    loadPreviewModeSetting();
     loadHideShortVideosSetting();
     loadHideUnpopularVideosSetting();
     setupBlocklistSync();
@@ -173,6 +178,23 @@
     const css = `
       [${BLOCK_ATTR}="true"] {
         display: none !important;
+      }
+
+      [${PREVIEW_ATTR}="true"] {
+        position: relative !important;
+        background: #ffe8e8 !important;
+        outline: 2px solid rgba(251, 114, 153, 0.55) !important;
+        outline-offset: -2px;
+      }
+
+      [${PREVIEW_ATTR}="true"]::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        z-index: 2147483647;
+        border-radius: inherit;
+        background: rgba(255, 80, 80, 0.12);
+        pointer-events: none;
       }
 
       .${FLOATING_BUTTON_CLASS} {
@@ -286,8 +308,56 @@
 
       #${MANAGER_PANEL_ID} .buvb-manager-actions {
         display: flex;
-        justify-content: flex-end;
+        align-items: center;
+        justify-content: space-between;
         gap: 8px;
+      }
+
+      #${MANAGER_PANEL_ID} .buvb-manager-preview-toggle {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        color: #61666d;
+        font-size: 13px;
+        font-weight: 700;
+        cursor: pointer;
+        user-select: none;
+      }
+
+      #${MANAGER_PANEL_ID} .buvb-manager-preview-toggle input {
+        position: absolute;
+        opacity: 0;
+        pointer-events: none;
+      }
+
+      #${MANAGER_PANEL_ID} .buvb-manager-preview-slider {
+        position: relative;
+        width: 36px;
+        height: 20px;
+        border-radius: 999px;
+        background: #c9ccd0;
+        transition: background 0.2s ease;
+      }
+
+      #${MANAGER_PANEL_ID} .buvb-manager-preview-slider::before {
+        content: "";
+        position: absolute;
+        top: 2px;
+        left: 2px;
+        width: 16px;
+        height: 16px;
+        border-radius: 50%;
+        background: #fff;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+        transition: transform 0.2s ease;
+      }
+
+      #${MANAGER_PANEL_ID} .buvb-manager-preview-toggle input:checked + .buvb-manager-preview-slider {
+        background: #fb7299;
+      }
+
+      #${MANAGER_PANEL_ID} .buvb-manager-preview-toggle input:checked + .buvb-manager-preview-slider::before {
+        transform: translateX(16px);
       }
 
       #${MANAGER_PANEL_ID} .buvb-manager-action {
@@ -727,7 +797,7 @@
       return;
     }
 
-    target.setAttribute(BLOCK_ATTR, "true");
+    target.setAttribute(PREVIEW_MODE ? PREVIEW_ATTR : BLOCK_ATTR, "true");
     target.setAttribute("data-bilibili-uid-blocked-uid", uid);
   }
 
@@ -796,6 +866,7 @@
       `[data-bilibili-uid-blocked-uid="${uid}"]`,
     )) {
       card.removeAttribute(BLOCK_ATTR);
+      card.removeAttribute(PREVIEW_ATTR);
       card.removeAttribute("data-bilibili-uid-blocked-uid");
       card.removeAttribute(SCANNED_ATTR);
     }
@@ -807,6 +878,10 @@
 
   function loadBlockNewUsersSetting() {
     BLOCK_NEW_USERS = readBlockNewUsersSetting();
+  }
+
+  function loadPreviewModeSetting() {
+    PREVIEW_MODE = readPreviewModeSetting();
   }
 
   function loadHideShortVideosSetting() {
@@ -834,6 +909,13 @@
         },
       );
       GM_addValueChangeListener(
+        PREVIEW_MODE_STORAGE_KEY,
+        (_key, _oldValue, newValue, remote) => {
+          if (!remote) return;
+          syncPreviewModeFromSavedValue(newValue);
+        },
+      );
+      GM_addValueChangeListener(
         HIDE_SHORT_VIDEOS_STORAGE_KEY,
         (_key, _oldValue, newValue, remote) => {
           if (!remote) return;
@@ -855,6 +937,8 @@
         syncBlockedUidsFromSavedValue(event.newValue);
       } else if (event.key === BLOCK_NEW_USERS_STORAGE_KEY) {
         syncBlockNewUsersFromSavedValue(event.newValue);
+      } else if (event.key === PREVIEW_MODE_STORAGE_KEY) {
+        syncPreviewModeFromSavedValue(event.newValue);
       } else if (event.key === HIDE_SHORT_VIDEOS_STORAGE_KEY) {
         syncHideShortVideosFromSavedValue(event.newValue);
       } else if (event.key === HIDE_UNPOPULAR_VIDEOS_STORAGE_KEY) {
@@ -881,6 +965,12 @@
     BLOCK_NEW_USERS = parseSavedBlockNewUsersSetting(savedValue);
     refreshBlockedCards();
     refreshBlockNewUsersControl();
+  }
+
+  function syncPreviewModeFromSavedValue(savedValue) {
+    PREVIEW_MODE = parseSavedPreviewModeSetting(savedValue);
+    refreshBlockedCards();
+    refreshPreviewModeControl();
   }
 
   function syncHideShortVideosFromSavedValue(savedValue) {
@@ -919,6 +1009,18 @@
     }
   }
 
+  function readPreviewModeSetting() {
+    try {
+      const saved =
+        typeof GM_getValue === "function"
+          ? GM_getValue(PREVIEW_MODE_STORAGE_KEY, false)
+          : localStorage.getItem(PREVIEW_MODE_STORAGE_KEY);
+      return parseSavedPreviewModeSetting(saved);
+    } catch (_error) {
+      return false;
+    }
+  }
+
   function readHideShortVideosSetting() {
     try {
       const saved =
@@ -944,6 +1046,17 @@
   }
 
   function parseSavedBlockNewUsersSetting(saved) {
+    if (saved === true || saved === "true") return true;
+    if (saved === false || saved == null || saved === "false") return false;
+
+    try {
+      return JSON.parse(saved) === true;
+    } catch (_error) {
+      return false;
+    }
+  }
+
+  function parseSavedPreviewModeSetting(saved) {
     if (saved === true || saved === "true") return true;
     if (saved === false || saved == null || saved === "false") return false;
 
@@ -1030,6 +1143,18 @@
     }
   }
 
+  function savePreviewModeSetting() {
+    try {
+      if (typeof GM_setValue === "function") {
+        GM_setValue(PREVIEW_MODE_STORAGE_KEY, PREVIEW_MODE);
+      } else {
+        localStorage.setItem(PREVIEW_MODE_STORAGE_KEY, String(PREVIEW_MODE));
+      }
+    } catch (_error) {
+      // Ignore storage failures so preview still works until reload.
+    }
+  }
+
   function saveHideShortVideosSetting() {
     try {
       if (typeof GM_setValue === "function") {
@@ -1066,6 +1191,12 @@
     refreshBlockedCards();
   }
 
+  function setPreviewModeSetting(previewing) {
+    PREVIEW_MODE = Boolean(previewing);
+    savePreviewModeSetting();
+    refreshBlockedCards();
+  }
+
   function setHideShortVideosSetting(hidden) {
     HIDE_SHORT_VIDEOS = Boolean(hidden);
     saveHideShortVideosSetting();
@@ -1081,6 +1212,12 @@
   function refreshBlockedCards() {
     for (const card of document.querySelectorAll(`[${BLOCK_ATTR}="true"]`)) {
       card.removeAttribute(BLOCK_ATTR);
+      card.removeAttribute("data-bilibili-uid-blocked-uid");
+      card.removeAttribute(SCANNED_ATTR);
+    }
+
+    for (const card of document.querySelectorAll(`[${PREVIEW_ATTR}="true"]`)) {
+      card.removeAttribute(PREVIEW_ATTR);
       card.removeAttribute("data-bilibili-uid-blocked-uid");
       card.removeAttribute(SCANNED_ATTR);
     }
@@ -1201,6 +1338,11 @@
       <textarea id="${MANAGER_TEXTAREA_ID}" spellcheck="false"></textarea>
       <div class="buvb-manager-help"></div>
       <div class="buvb-manager-actions">
+        <label class="buvb-manager-preview-toggle" for="${MANAGER_PREVIEW_MODE_ID}">
+          <input id="${MANAGER_PREVIEW_MODE_ID}" type="checkbox">
+          <span class="buvb-manager-preview-slider" aria-hidden="true"></span>
+          <span>Preview</span>
+        </label>
         <button class="buvb-manager-action buvb-manager-action-primary" type="button" data-action="save" disabled>Save</button>
       </div>
     `;
@@ -1233,6 +1375,8 @@
     panel.addEventListener("change", (event) => {
       if (event.target && event.target.id === MANAGER_BLOCK_NEW_USERS_ID) {
         setBlockNewUsersSetting(event.target.checked);
+      } else if (event.target && event.target.id === MANAGER_PREVIEW_MODE_ID) {
+        setPreviewModeSetting(event.target.checked);
       } else if (
         event.target &&
         event.target.id === MANAGER_HIDE_SHORT_VIDEOS_ID
@@ -1263,6 +1407,7 @@
       textarea.dataset.cleanValue = textarea.value;
     }
     refreshBlockNewUsersControl(panel);
+    refreshPreviewModeControl(panel);
     refreshHideShortVideosControl(panel);
     refreshHideUnpopularVideosControl(panel);
     updateManagerSaveButtonState(panel);
@@ -1287,6 +1432,15 @@
 
     const blockNewUsers = panel.querySelector(`#${MANAGER_BLOCK_NEW_USERS_ID}`);
     if (blockNewUsers) blockNewUsers.checked = BLOCK_NEW_USERS;
+  }
+
+  function refreshPreviewModeControl(
+    panel = document.getElementById(MANAGER_PANEL_ID),
+  ) {
+    if (!panel) return;
+
+    const previewMode = panel.querySelector(`#${MANAGER_PREVIEW_MODE_ID}`);
+    if (previewMode) previewMode.checked = PREVIEW_MODE;
   }
 
   function refreshHideShortVideosControl(
