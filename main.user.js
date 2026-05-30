@@ -130,6 +130,15 @@
     '[class*="Duration"]',
   ].join(",");
 
+  const VIDEO_TITLE_SELECTOR = [
+    '[class*="title"]',
+    '[class*="Title"]',
+    "h1",
+    "h2",
+    "h3",
+    "[title]",
+  ].join(",");
+
   const VIDEO_VIEW_COUNT_SELECTOR = [
     '[class*="play"]',
     '[class*="Play"]',
@@ -181,20 +190,9 @@
       }
 
       [${PREVIEW_ATTR}="true"] {
-        position: relative !important;
-        background: #ffe8e8 !important;
+        background-color: #ffe8e8 !important;
         outline: 2px solid rgba(251, 114, 153, 0.55) !important;
         outline-offset: -2px;
-      }
-
-      [${PREVIEW_ATTR}="true"]::after {
-        content: "";
-        position: absolute;
-        inset: 0;
-        z-index: 2147483647;
-        border-radius: inherit;
-        background: rgba(255, 80, 80, 0.12);
-        pointer-events: none;
       }
 
       .${FLOATING_BUTTON_CLASS} {
@@ -797,8 +795,71 @@
       return;
     }
 
-    target.setAttribute(PREVIEW_MODE ? PREVIEW_ATTR : BLOCK_ATTR, "true");
-    target.setAttribute("data-bilibili-uid-blocked-uid", uid);
+    const blockedTarget = PREVIEW_MODE
+      ? getPreviewHighlightTarget(card, target)
+      : target;
+    blockedTarget.setAttribute(
+      PREVIEW_MODE ? PREVIEW_ATTR : BLOCK_ATTR,
+      "true",
+    );
+    blockedTarget.setAttribute("data-bilibili-uid-blocked-uid", uid);
+  }
+
+  function getPreviewHighlightTarget(card, fallbackTarget) {
+    const metadataElements = getPreviewMetadataElements(card, fallbackTarget);
+    const metadataContainer = getSmallestCommonAncestor(
+      metadataElements,
+      fallbackTarget,
+    );
+
+    return metadataContainer || fallbackTarget;
+  }
+
+  function getPreviewMetadataElements(card, fallbackTarget) {
+    const metadataElements = new Set();
+    const selectors = [
+      VIDEO_TITLE_SELECTOR,
+      UPLOADER_CLUE_SELECTOR,
+      VIDEO_VIEW_COUNT_SELECTOR,
+    ];
+
+    for (const selector of selectors) {
+      if (matchesSafely(card, selector) && isPreviewMetadataElement(card)) {
+        metadataElements.add(card);
+      }
+
+      for (const element of card.querySelectorAll(selector)) {
+        if (isPreviewMetadataElement(element)) metadataElements.add(element);
+      }
+    }
+
+    if (metadataElements.size === 0) metadataElements.add(fallbackTarget);
+    return [...metadataElements];
+  }
+
+  function isPreviewMetadataElement(element) {
+    return (
+      element instanceof Element &&
+      !element.closest(
+        'img, picture, video, canvas, [class*="cover"], [class*="Cover"], [class*="thumb"], [class*="Thumb"], [class*="pic"], [class*="Pic"]',
+      )
+    );
+  }
+
+  function getSmallestCommonAncestor(elements, boundary) {
+    if (!elements.length || !boundary) return null;
+
+    let commonAncestor = elements[0];
+    while (
+      commonAncestor &&
+      commonAncestor !== boundary &&
+      !elements.every((element) => commonAncestor.contains(element))
+    ) {
+      commonAncestor = commonAncestor.parentElement;
+    }
+
+    if (!commonAncestor || !boundary.contains(commonAncestor)) return null;
+    return commonAncestor;
   }
 
   function getCardHideTarget(card) {
