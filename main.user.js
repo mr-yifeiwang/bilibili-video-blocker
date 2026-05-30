@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Bilibili Video Blocker
 // @namespace    https://github.com/mr-yifeiwang/bilibili-video-blocker
-// @version      1.4.0
+// @version      1.4.1
 // @description  Hide Bilibili video cards conditionally
 // @author       mr-yifeiwang
 // @match        https://www.bilibili.com/*
@@ -494,7 +494,7 @@
       isLikelyViewCountFallbackElement,
     );
     for (const element of [...preferred, ...fallback]) {
-      const count = parseViewCount(element.textContent || "");
+      const count = parseViewCount(element.innerText || "");
       if (count != null) return count;
     }
     return null;
