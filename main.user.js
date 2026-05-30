@@ -130,15 +130,6 @@
     '[class*="Duration"]',
   ].join(",");
 
-  const VIDEO_TITLE_SELECTOR = [
-    '[class*="title"]',
-    '[class*="Title"]',
-    "h1",
-    "h2",
-    "h3",
-    "[title]",
-  ].join(",");
-
   const VIDEO_VIEW_COUNT_SELECTOR = [
     '[class*="play"]',
     '[class*="Play"]',
@@ -783,7 +774,13 @@
   function hideCard(card, uid) {
     const target = getCardHideTarget(card);
 
-    if (
+    if (!isValidCardConsequenceTarget(target, card, uid)) return;
+
+    applyCardConsequence(target, uid);
+  }
+
+  function isValidCardConsequenceTarget(target, card, uid) {
+    return !(
       !target ||
       isUnsafePageContainer(target) ||
       isTooLargeToHide(target) ||
@@ -791,75 +788,44 @@
       isProtectedSearchVideoCard(target) ||
       isDirectVideoOwnerCard(target, uid) ||
       containsMultipleVideos(target)
-    ) {
+    );
+  }
+
+  function applyCardConsequence(target, uid) {
+    const consequenceAttr = PREVIEW_MODE ? PREVIEW_ATTR : BLOCK_ATTR;
+    const staleAttr = PREVIEW_MODE ? BLOCK_ATTR : PREVIEW_ATTR;
+
+    clearNestedCardConsequences(target);
+    target.removeAttribute(staleAttr);
+
+    if (hasAncestorCardConsequence(target, consequenceAttr)) {
+      clearCardConsequence(target);
       return;
     }
 
-    const blockedTarget = PREVIEW_MODE
-      ? getPreviewHighlightTarget(card, target)
-      : target;
-    blockedTarget.setAttribute(
-      PREVIEW_MODE ? PREVIEW_ATTR : BLOCK_ATTR,
-      "true",
-    );
-    blockedTarget.setAttribute("data-bilibili-uid-blocked-uid", uid);
+    target.setAttribute(consequenceAttr, "true");
+    target.setAttribute("data-bilibili-uid-blocked-uid", uid);
   }
 
-  function getPreviewHighlightTarget(card, fallbackTarget) {
-    const metadataElements = getPreviewMetadataElements(card, fallbackTarget);
-    const metadataContainer = getSmallestCommonAncestor(
-      metadataElements,
-      fallbackTarget,
-    );
-
-    return metadataContainer || fallbackTarget;
-  }
-
-  function getPreviewMetadataElements(card, fallbackTarget) {
-    const metadataElements = new Set();
-    const selectors = [
-      VIDEO_TITLE_SELECTOR,
-      UPLOADER_CLUE_SELECTOR,
-      VIDEO_VIEW_COUNT_SELECTOR,
-    ];
-
-    for (const selector of selectors) {
-      if (matchesSafely(card, selector) && isPreviewMetadataElement(card)) {
-        metadataElements.add(card);
-      }
-
-      for (const element of card.querySelectorAll(selector)) {
-        if (isPreviewMetadataElement(element)) metadataElements.add(element);
-      }
+  function clearNestedCardConsequences(target) {
+    for (const nestedTarget of target.querySelectorAll(
+      `[${BLOCK_ATTR}], [${PREVIEW_ATTR}]`,
+    )) {
+      clearCardConsequence(nestedTarget);
     }
-
-    if (metadataElements.size === 0) metadataElements.add(fallbackTarget);
-    return [...metadataElements];
   }
 
-  function isPreviewMetadataElement(element) {
-    return (
-      element instanceof Element &&
-      !element.closest(
-        'img, picture, video, canvas, [class*="cover"], [class*="Cover"], [class*="thumb"], [class*="Thumb"], [class*="pic"], [class*="Pic"]',
-      )
+  function clearCardConsequence(target) {
+    target.removeAttribute(BLOCK_ATTR);
+    target.removeAttribute(PREVIEW_ATTR);
+    target.removeAttribute("data-bilibili-uid-blocked-uid");
+  }
+
+  function hasAncestorCardConsequence(target, consequenceAttr) {
+    return Boolean(
+      target.parentElement &&
+      target.parentElement.closest(`[${consequenceAttr}]`),
     );
-  }
-
-  function getSmallestCommonAncestor(elements, boundary) {
-    if (!elements.length || !boundary) return null;
-
-    let commonAncestor = elements[0];
-    while (
-      commonAncestor &&
-      commonAncestor !== boundary &&
-      !elements.every((element) => commonAncestor.contains(element))
-    ) {
-      commonAncestor = commonAncestor.parentElement;
-    }
-
-    if (!commonAncestor || !boundary.contains(commonAncestor)) return null;
-    return commonAncestor;
   }
 
   function getCardHideTarget(card) {
